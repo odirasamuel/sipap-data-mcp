@@ -1,0 +1,4 @@
+sipap-common>=0.1.0
+sipap-mcp>=0.1.0
+asyncpg>=0.29.0
+redis[hiredis]>=5.0.0

@@ -1,0 +1,64 @@
+[project]
+name = "sipap-data-mcp"
+version = "0.1.0"
+description = "SIPAP consolidated data access MCP server"
+requires-python = ">=3.12"
+dependencies = [
+    "sipap-common>=0.1.0",
+    "sipap-mcp>=0.1.0",
+    "asyncpg>=0.29.0",
+    "redis[hiredis]>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.8.0",
+    "ruff>=0.2.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--cov=src/sipap_data_mcp --cov-report=term-missing"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "asyncio: Async tests",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+
+[[tool.mypy.overrides]]
+module = "asyncpg.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "redis.*"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "ANN", "S", "B", "A", "C4", "DTZ", "T10", "EM", "ISC", "ICN", "PT", "RET", "SIM", "ARG", "PTH", "PD", "PLE", "PLW", "TRY", "RUF"]
+ignore = ["ANN101", "ANN102", "S101", "TRY003", "EM101", "EM102"]  # Ignore self/cls annotations, allow assert in tests, allow exception message formatting
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S106", "ANN", "ARG"]  # Allow asserts, test passwords, and relax annotations in tests
