@@ -9,10 +9,9 @@ This example demonstrates:
 
 import asyncio
 import os
-from datetime import datetime, timedelta, UTC
 
 from sipap_data_mcp.database.aurora import AuroraDataClient
-from sipap_data_mcp.tools.historical import query_history, get_form_data
+from sipap_data_mcp.tools.historical import get_form_data, query_history
 
 
 async def main():
@@ -132,12 +131,12 @@ async def main():
             num_matches=10
         )
 
-        print(f"\nLast 5 matches:")
+        print("\nLast 5 matches:")
         print(f"  Form: {' '.join(form_5['form'])}")
         print(f"  Points: {form_5['points']} / 15")
         print(f"  Win rate: {(form_5['wins'] / len(form_5['form']) * 100):.1f}%" if form_5['form'] else "N/A")
 
-        print(f"\nLast 10 matches:")
+        print("\nLast 10 matches:")
         print(f"  Form: {' '.join(form_10['form'])}")
         print(f"  Points: {form_10['points']} / 30")
         print(f"  Win rate: {(form_10['wins'] / len(form_10['form']) * 100):.1f}%" if form_10['form'] else "N/A")
@@ -147,7 +146,7 @@ async def main():
             recent_ppg = form_5['points'] / len(form_5['form'])
             overall_ppg = form_10['points'] / len(form_10['form'])
 
-            print(f"\nTrend Analysis:")
+            print("\nTrend Analysis:")
             print(f"  Recent PPG (last 5): {recent_ppg:.2f}")
             print(f"  Overall PPG (last 10): {overall_ppg:.2f}")
 
@@ -156,7 +155,7 @@ async def main():
             elif recent_ppg < overall_ppg:
                 print(f"  📉 Declining form ({(recent_ppg - overall_ppg):.2f} PPG)")
             else:
-                print(f"  ➡️  Consistent form")
+                print("  ➡️  Consistent form")
 
         # Example 6: Error handling - Invalid UUID
         print("\n" + "=" * 60)

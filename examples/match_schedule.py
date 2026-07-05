@@ -9,10 +9,10 @@ This example demonstrates:
 
 import asyncio
 import os
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from sipap_data_mcp.database.aurora import AuroraDataClient
-from sipap_data_mcp.tools.matches import get_match_schedule, get_live_matches
+from sipap_data_mcp.tools.matches import get_live_matches, get_match_schedule
 
 
 async def main():

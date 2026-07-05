@@ -11,7 +11,7 @@ import asyncio
 import os
 
 from sipap_data_mcp.database.aurora import AuroraDataClient
-from sipap_data_mcp.tools.teams import get_team_stats, get_league_table
+from sipap_data_mcp.tools.teams import get_league_table, get_team_stats
 
 
 async def main():
@@ -55,10 +55,10 @@ async def main():
         print(f"Points: {stats['points']}")
         print(f"Recent Form: {' '.join(stats['form'])}")
 
-        print(f"\nHome Record:")
+        print("\nHome Record:")
         print(f"  {stats['home_record']['wins']}W - {stats['home_record']['draws']}D - {stats['home_record']['losses']}L")
 
-        print(f"\nAway Record:")
+        print("\nAway Record:")
         print(f"  {stats['away_record']['wins']}W - {stats['away_record']['draws']}D - {stats['away_record']['losses']}L")
 
         # Example 2: Get league standings

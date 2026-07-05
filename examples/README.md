@@ -28,6 +28,15 @@ export REDIS_URL="redis://localhost:6379/0"
 
 ## Examples
 
+### 0. MCP Client - JSON-RPC 2.0 Protocol (`mcp_client.py`) ⭐ NEW
+Demonstrates how to:
+- Interact with MCP server via JSON-RPC 2.0 (how AI agents call tools)
+- List all available tools
+- Call tools using JSON-RPC protocol
+- Handle MCP content format responses
+- Error handling for invalid tools and parameters
+- **This is the primary way AI agents (Claude, GPT-4) access SIPAP data**
+
 ### 1. Match Schedule (`match_schedule.py`)
 Demonstrates how to:
 - Get upcoming matches for a date range
@@ -74,6 +83,9 @@ Demonstrates how to:
 ## Running Examples
 
 ```bash
+# Run MCP client example (JSON-RPC 2.0 protocol) ⭐ NEW
+python examples/mcp_client.py
+
 # Run match schedule example
 python examples/match_schedule.py
 

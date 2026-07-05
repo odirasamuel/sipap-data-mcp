@@ -60,14 +60,14 @@ async def main():
             team2_win_pct = (h2h['team2_wins'] / h2h['total_matches']) * 100
             draw_pct = (h2h['draws'] / h2h['total_matches']) * 100
 
-            print(f"\nWin Percentages:")
+            print("\nWin Percentages:")
             print(f"  {h2h['team1_name']}: {team1_win_pct:.1f}%")
             print(f"  {h2h['team2_name']}: {team2_win_pct:.1f}%")
             print(f"  Draws: {draw_pct:.1f}%")
 
         # Show recent matches
         if h2h['recent_matches']:
-            print(f"\nRecent Matches:")
+            print("\nRecent Matches:")
             print("-" * 60)
             for match in h2h['recent_matches'][:5]:  # Show last 5
                 print(f"\n  {match['scheduled_at']}")

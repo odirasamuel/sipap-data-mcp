@@ -19,7 +19,6 @@ from sipap_data_mcp.tools.matches import get_match_schedule
 from sipap_data_mcp.tools.odds import get_match_odds
 from sipap_data_mcp.tools.teams import get_team_stats
 
-
 # TTL Configuration (as per SIPAP architecture)
 TTL_MATCH_SCHEDULE = 3600      # 1 hour (data changes frequently)
 TTL_TEAM_STATS = 86400          # 24 hours (stable data)

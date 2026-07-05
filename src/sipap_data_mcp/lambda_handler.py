@@ -91,6 +91,5 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             },
             "body": json.dumps(response)
         }
-    else:
-        # Direct invocation
-        return response
+    # Direct invocation
+    return response

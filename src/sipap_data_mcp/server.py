@@ -7,7 +7,7 @@ Wraps 11 data tools with MCP protocol for AI agent communication.
 import asyncio
 from typing import Any
 
-from sipap_mcp import MCPServer, mcp_tool
+from sipap_mcp import MCPServer, mcp_tool  # type: ignore[import-untyped]
 
 from sipap_data_mcp.cache.redis import RedisCache
 from sipap_data_mcp.database.aurora import AuroraDataClient
@@ -157,7 +157,7 @@ class SIPAPDataMCP(MCPServer):
         """
         # Check if we're already in an async context
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # We're in an async context (like pytest-asyncio)
             # Create a new thread with its own event loop
             import concurrent.futures
@@ -420,37 +420,44 @@ class SIPAPDataMCP(MCPServer):
             "properties": {
                 "team_id": {
                     "type": "string",
-                    "description": "Optional team UUID filter"
+                    "description": "Team UUID"
                 },
                 "league_id": {
                     "type": "string",
                     "description": "Optional league UUID filter"
                 },
-                "season": {
+                "date_from": {
                     "type": "string",
-                    "description": "Optional season filter (e.g., '2024-2025')"
+                    "description": "Optional start date (YYYY-MM-DD)"
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "Optional end date (YYYY-MM-DD)"
                 },
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of records",
-                    "default": 100
+                    "default": 20
                 }
-            }
+            },
+            "required": ["team_id"]
         }
     )
     def query_history(
         self,
-        team_id: str | None = None,
+        team_id: str,
         league_id: str | None = None,
-        season: str | None = None,
-        limit: int = 100
+        date_from: str | None = None,
+        date_to: str | None = None,
+        limit: int = 20
     ) -> dict[str, Any]:
         """Query historical match data.
 
         Args:
-            team_id: Optional team UUID filter
+            team_id: Team UUID
             league_id: Optional league UUID filter
-            season: Optional season filter
+            date_from: Optional start date (YYYY-MM-DD)
+            date_to: Optional end date (YYYY-MM-DD)
             limit: Maximum number of records
 
         Returns:
@@ -461,7 +468,8 @@ class SIPAPDataMCP(MCPServer):
             db_client=db_client,
             team_id=team_id,
             league_id=league_id,
-            season=season,
+            date_from=date_from,
+            date_to=date_to,
             limit=limit)
         )
 
@@ -509,18 +517,13 @@ class SIPAPDataMCP(MCPServer):
     # ========================================================================
 
     @mcp_tool(
-        description="Get current betting odds for a match",
+        description="Get current betting odds for a match from multiple bookmakers",
         input_schema={
             "type": "object",
             "properties": {
                 "match_id": {
                     "type": "string",
                     "description": "Match UUID"
-                },
-                "market": {
-                    "type": "string",
-                    "description": "Betting market type",
-                    "default": "h2h"
                 }
             },
             "required": ["match_id"]
@@ -528,27 +531,24 @@ class SIPAPDataMCP(MCPServer):
     )
     def get_match_odds(
         self,
-        match_id: str,
-        market: str = "h2h"
-    ) -> dict[str, Any]:
+        match_id: str
+    ) -> dict[str, Any] | None:
         """Get current betting odds for a match.
 
         Args:
             match_id: Match UUID
-            market: Betting market type
 
         Returns:
-            Dictionary with betting odds
+            Dictionary with betting odds or None if no odds available
         """
         db_client, _ = self._ensure_connections()
         return self._run_async(get_match_odds(
             db_client=db_client,
-            match_id=match_id,
-            market=market)
+            match_id=match_id)
         )
 
     @mcp_tool(
-        description="Get odds movement history for a match",
+        description="Track odds movements over time for a match",
         input_schema={
             "type": "object",
             "properties": {
@@ -556,15 +556,10 @@ class SIPAPDataMCP(MCPServer):
                     "type": "string",
                     "description": "Match UUID"
                 },
-                "market": {
+                "time_window": {
                     "type": "string",
-                    "description": "Betting market type",
-                    "default": "h2h"
-                },
-                "hours_back": {
-                    "type": "integer",
-                    "description": "Number of hours of history",
-                    "default": 24
+                    "description": "Time window (1h, 6h, 12h, 24h, 48h, 7d)",
+                    "default": "24h"
                 }
             },
             "required": ["match_id"]
@@ -573,23 +568,20 @@ class SIPAPDataMCP(MCPServer):
     def get_odds_movements(
         self,
         match_id: str,
-        market: str = "h2h",
-        hours_back: int = 24
-    ) -> dict[str, Any]:
+        time_window: str = "24h"
+    ) -> dict[str, Any] | None:
         """Get odds movement history.
 
         Args:
             match_id: Match UUID
-            market: Betting market type
-            hours_back: Number of hours of history
+            time_window: Time window for tracking movements
 
         Returns:
-            Dictionary with odds movement history
+            Dictionary with odds movement history or None if no data available
         """
         db_client, _ = self._ensure_connections()
         return self._run_async(get_odds_movements(
             db_client=db_client,
             match_id=match_id,
-            market=market,
-            hours_back=hours_back)
+            time_window=time_window)
         )
