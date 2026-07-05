@@ -243,3 +243,281 @@ class AuroraDataClient:
             params = (date_from, date_to, status)
 
         return (select_clause + where_clause, params)
+
+    async def get_match(self, match_id: str) -> dict[str, Any] | None:
+        """Retrieve a single match by ID.
+
+        Args:
+            match_id: Match UUID
+
+        Returns:
+            Match dictionary or None if not found
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            match = await client.get_match(
+                match_id="550e8400-e29b-41d4-a716-446655440000"
+            )
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                id, external_id, scheduled_at, status,
+                home_team, away_team, home_team_id, away_team_id,
+                league, league_id, sport, venue,
+                home_score, away_score, metadata
+            FROM matches
+            WHERE id = $1
+        """
+
+        assert self._pool is not None  # Type narrowing for mypy
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(query, match_id)
+
+        if record is None:
+            return None
+
+        return dict(record)
+
+    async def search_matches(self, query: str) -> list[dict[str, Any]]:
+        """Search for matches by team name or other criteria.
+
+        Args:
+            query: Search query string
+
+        Returns:
+            List of match dictionaries
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            matches = await client.search_matches(query="Arsenal")
+            ```
+        """
+        self._ensure_connected()
+
+        # Search by team name (home or away)
+        search_query = """
+            SELECT
+                id, external_id, scheduled_at, status,
+                home_team, away_team, home_team_id, away_team_id,
+                league, league_id, sport, venue,
+                home_score, away_score, metadata
+            FROM matches
+            WHERE home_team ILIKE $1
+               OR away_team ILIKE $1
+            ORDER BY scheduled_at DESC
+            LIMIT 100
+        """
+
+        # Add wildcards for partial matching
+        search_term = f"%{query}%"
+
+        assert self._pool is not None  # Type narrowing for mypy
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(search_query, search_term)
+
+        return [dict(record) for record in records]
+
+    async def get_team_stats(
+        self,
+        team_id: str,
+        season: str,
+    ) -> dict[str, Any] | None:
+        """Retrieve team statistics for a specific season.
+
+        Args:
+            team_id: Team UUID
+            season: Season in format "YYYY-YYYY"
+
+        Returns:
+            Team statistics dictionary or None if not found
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            stats = await client.get_team_stats(
+                team_id="team-uuid-1",
+                season="2024-2025"
+            )
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                team_id, team_name, season,
+                matches_played, wins, draws, losses,
+                goals_scored, goals_conceded, goal_difference,
+                points, form, home_record, away_record
+            FROM team_stats
+            WHERE team_id = $1 AND season = $2
+        """
+
+        assert self._pool is not None  # Type narrowing for mypy
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(query, team_id, season)
+
+        if record is None:
+            return None
+
+        return dict(record)
+
+    async def get_league_table(
+        self,
+        league_id: str,
+        season: str,
+    ) -> list[dict[str, Any]]:
+        """Retrieve league table/standings for a specific season.
+
+        Args:
+            league_id: League UUID
+            season: Season in format "YYYY-YYYY"
+
+        Returns:
+            List of team standings sorted by position
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            standings = await client.get_league_table(
+                league_id="league-uuid-1",
+                season="2024-2025"
+            )
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                position, team_name, team_id,
+                matches_played, wins, draws, losses,
+                goals_scored, goals_conceded, goal_difference,
+                points, form
+            FROM league_standings
+            WHERE league_id = $1 AND season = $2
+            ORDER BY position ASC
+        """
+
+        assert self._pool is not None  # Type narrowing for mypy
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(query, league_id, season)
+
+        return [dict(record) for record in records]
+
+    async def get_head_to_head(
+        self,
+        team1_id: str,
+        team2_id: str,
+        limit: int = 10,
+    ) -> dict[str, Any]:
+        """Retrieve head-to-head statistics between two teams.
+
+        Args:
+            team1_id: First team UUID
+            team2_id: Second team UUID
+            limit: Maximum number of recent matches to include
+
+        Returns:
+            Head-to-head statistics dictionary with:
+            - team1_id, team2_id
+            - team1_name, team2_name
+            - total_matches, team1_wins, team2_wins, draws
+            - recent_matches
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            h2h = await client.get_head_to_head(
+                team1_id="team-uuid-1",
+                team2_id="team-uuid-2",
+                limit=10
+            )
+            ```
+        """
+        self._ensure_connected()
+
+        # Get team names
+        team_names_query = """
+            SELECT id, name FROM teams WHERE id = $1 OR id = $2
+        """
+
+        # Get historical matches between these teams
+        matches_query = """
+            SELECT
+                id, scheduled_at, home_team, away_team,
+                home_team_id, away_team_id,
+                home_score, away_score, status
+            FROM matches
+            WHERE (home_team_id = $1 AND away_team_id = $2)
+               OR (home_team_id = $2 AND away_team_id = $1)
+            AND status = 'finished'
+            ORDER BY scheduled_at DESC
+            LIMIT $3
+        """
+
+        assert self._pool is not None  # Type narrowing for mypy
+        async with self._pool.acquire() as connection:
+            # Get team names
+            team_records = await connection.fetch(team_names_query, team1_id, team2_id)
+            teams_dict = {str(record["id"]): record["name"] for record in team_records}
+
+            team1_name = teams_dict.get(team1_id, "Unknown Team")
+            team2_name = teams_dict.get(team2_id, "Unknown Team")
+
+            # Get historical matches
+            match_records = await connection.fetch(matches_query, team1_id, team2_id, limit)
+
+        # Calculate statistics
+        total_matches = len(match_records)
+        team1_wins = 0
+        team2_wins = 0
+        draws = 0
+        recent_matches = []
+
+        for record in match_records:
+            match_dict = dict(record)
+            recent_matches.append(match_dict)
+
+            # Determine winner
+            if match_dict["home_team_id"] == team1_id:
+                # Team1 is home
+                if match_dict["home_score"] > match_dict["away_score"]:
+                    team1_wins += 1
+                elif match_dict["home_score"] < match_dict["away_score"]:
+                    team2_wins += 1
+                else:
+                    draws += 1
+            else:
+                # Team1 is away
+                if match_dict["away_score"] > match_dict["home_score"]:
+                    team1_wins += 1
+                elif match_dict["away_score"] < match_dict["home_score"]:
+                    team2_wins += 1
+                else:
+                    draws += 1
+
+        return {
+            "team1_id": team1_id,
+            "team2_id": team2_id,
+            "team1_name": team1_name,
+            "team2_name": team2_name,
+            "total_matches": total_matches,
+            "team1_wins": team1_wins,
+            "team2_wins": team2_wins,
+            "draws": draws,
+            "recent_matches": recent_matches,
+        }

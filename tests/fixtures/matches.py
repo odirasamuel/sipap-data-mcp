@@ -28,7 +28,29 @@ SAMPLE_MATCH = {
     }
 }
 
-SAMPLE_MATCH_LIST = [SAMPLE_MATCH]
+SAMPLE_MATCH_2 = {
+    **SAMPLE_MATCH,
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "external_id": "api-football-12346",
+    "scheduled_at": "2026-07-06T15:00:00Z",
+    "home_team": "Manchester United",
+    "away_team": "Liverpool",
+    "home_team_id": "team-uuid-3",
+    "away_team_id": "team-uuid-4",
+}
+
+SAMPLE_MATCH_3 = {
+    **SAMPLE_MATCH,
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "external_id": "api-football-12347",
+    "scheduled_at": "2026-07-07T15:00:00Z",
+    "home_team": "Manchester City",
+    "away_team": "Tottenham",
+    "home_team_id": "team-uuid-5",
+    "away_team_id": "team-uuid-6",
+}
+
+SAMPLE_MATCH_LIST = [SAMPLE_MATCH, SAMPLE_MATCH_2, SAMPLE_MATCH_3]
 
 SAMPLE_LIVE_MATCH = {
     **SAMPLE_MATCH,

@@ -1,7 +1,7 @@
 """Test data fixtures for teams."""
 
 SAMPLE_TEAM_STATS = {
-    "team_id": "team-uuid-1",
+    "team_id": "550e8400-e29b-41d4-a716-446655440010",
     "team_name": "Arsenal",
     "season": "2024-2025",
     "matches_played": 38,
@@ -29,7 +29,7 @@ SAMPLE_LEAGUE_TABLE = [
     {
         "position": 1,
         "team_name": "Arsenal",
-        "team_id": "team-uuid-1",
+        "team_id": "550e8400-e29b-41d4-a716-446655440010",
         "matches_played": 38,
         "wins": 28,
         "draws": 7,
@@ -43,7 +43,7 @@ SAMPLE_LEAGUE_TABLE = [
     {
         "position": 2,
         "team_name": "Manchester City",
-        "team_id": "team-uuid-2",
+        "team_id": "550e8400-e29b-41d4-a716-446655440011",
         "matches_played": 38,
         "wins": 27,
         "draws": 8,
