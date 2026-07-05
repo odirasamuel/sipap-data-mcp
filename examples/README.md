@@ -21,6 +21,9 @@ export DB_PORT="5432"
 export DB_NAME="sipap"
 export DB_USER="sipap_readonly"
 export DB_PASSWORD="your-password"
+
+# Optional: For caching examples
+export REDIS_URL="redis://localhost:6379/0"
 ```
 
 ## Examples
@@ -60,6 +63,14 @@ Demonstrates how to:
 - Calculate implied probabilities
 - Detect value bets using probability models
 
+### 6. Cached Data Access (`cached_data_access.py`)
+Demonstrates how to:
+- Use Redis caching for improved performance (<100ms responses)
+- Implement cache-aside pattern
+- Configure TTLs for different data types
+- Handle cache hits and misses
+- Manually invalidate cached data
+
 ## Running Examples
 
 ```bash
@@ -77,6 +88,9 @@ python examples/historical_analysis.py
 
 # Run odds analysis example
 python examples/odds_analysis.py
+
+# Run cached data access example (requires Redis)
+python examples/cached_data_access.py
 ```
 
 ## Expected Output
