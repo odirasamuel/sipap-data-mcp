@@ -51,6 +51,15 @@ Demonstrates how to:
 - Filter by date range and league
 - Compare form over different periods
 
+### 5. Odds Analysis (`odds_analysis.py`)
+Demonstrates how to:
+- Retrieve current betting odds from multiple bookmakers
+- Find best available odds for each outcome
+- Track odds movements over time
+- Identify sharp money (steam moves)
+- Calculate implied probabilities
+- Detect value bets using probability models
+
 ## Running Examples
 
 ```bash
@@ -65,6 +74,9 @@ python examples/head_to_head.py
 
 # Run historical analysis example
 python examples/historical_analysis.py
+
+# Run odds analysis example
+python examples/odds_analysis.py
 ```
 
 ## Expected Output

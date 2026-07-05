@@ -603,3 +603,107 @@ class AuroraDataClient:
             records = await connection.fetch(query, *params)
 
         return [dict(record) for record in records]
+
+    async def get_match_odds(
+        self,
+        match_id: str,
+    ) -> dict[str, Any] | None:
+        """Get betting odds for a match from multiple bookmakers.
+
+        Args:
+            match_id: Match UUID
+
+        Returns:
+            Dictionary with odds data (bookmakers, best_odds, average_odds)
+            or None if no odds available
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            odds = await client.get_match_odds("match-uuid-1")
+            # Returns: {"bookmakers": [...], "best_odds": {...}, ...}
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                id AS match_id,
+                metadata->'odds' AS odds_data
+            FROM matches
+            WHERE id = $1
+              AND metadata ? 'odds'
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(query, match_id)
+
+        if record is None or record["odds_data"] is None:
+            return None
+
+        # Parse odds data from JSONB
+        odds_data = dict(record["odds_data"])
+
+        return {
+            "match_id": record["match_id"],
+            "bookmakers": odds_data.get("bookmakers", []),
+            "best_odds": odds_data.get("best_odds", {}),
+            "average_odds": odds_data.get("average_odds", {}),
+        }
+
+    async def get_odds_movements(
+        self,
+        match_id: str,
+        time_window: str = "24h",
+    ) -> dict[str, Any] | None:
+        """Get odds movements over time for a match.
+
+        Args:
+            match_id: Match UUID
+            time_window: Time window (1h, 6h, 12h, 24h, 48h, 7d)
+
+        Returns:
+            Dictionary with movement data (movements, opening_odds, current_odds)
+            or None if no movements available
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            movements = await client.get_odds_movements("match-uuid-1", "24h")
+            # Returns: {"movements": [...], "opening_odds": {...}, ...}
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                id AS match_id,
+                metadata->'odds_history' AS odds_history
+            FROM matches
+            WHERE id = $1
+              AND metadata ? 'odds_history'
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as connection:
+            record = await connection.fetchrow(query, match_id)
+
+        if record is None or record["odds_history"] is None:
+            return None
+
+        # Parse odds history from JSONB
+        odds_history = dict(record["odds_history"])
+
+        return {
+            "match_id": record["match_id"],
+            "time_window": time_window,
+            "movements": odds_history.get("movements", []),
+            "opening_odds": odds_history.get("opening_odds", {}),
+            "current_odds": odds_history.get("current_odds", {}),
+            "movement_summary": odds_history.get("movement_summary", {}),
+        }
