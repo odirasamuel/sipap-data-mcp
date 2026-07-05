@@ -43,6 +43,14 @@ Demonstrates how to:
 - Calculate win/loss/draw statistics
 - Retrieve recent match results
 
+### 4. Historical Analysis (`historical_analysis.py`)
+Demonstrates how to:
+- Query historical match data with flexible filters
+- Calculate team form from recent results
+- Analyze performance trends over time
+- Filter by date range and league
+- Compare form over different periods
+
 ## Running Examples
 
 ```bash
@@ -54,6 +62,9 @@ python examples/team_statistics.py
 
 # Run head-to-head analysis example
 python examples/head_to_head.py
+
+# Run historical analysis example
+python examples/historical_analysis.py
 ```
 
 ## Expected Output

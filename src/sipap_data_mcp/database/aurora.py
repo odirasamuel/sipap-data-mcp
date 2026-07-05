@@ -521,3 +521,85 @@ class AuroraDataClient:
             "draws": draws,
             "recent_matches": recent_matches,
         }
+
+    async def query_match_history(
+        self,
+        team_id: str,
+        league_id: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Query historical match data for a team.
+
+        Args:
+            team_id: Team UUID
+            league_id: Optional league UUID filter
+            date_from: Optional start date in ISO 8601 format
+            date_to: Optional end date in ISO 8601 format
+            limit: Maximum number of matches to return
+
+        Returns:
+            List of finished matches ordered by date (most recent first)
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            matches = await client.query_match_history(
+                team_id="team-uuid-1",
+                date_from="2026-01-01",
+                date_to="2026-06-30",
+                limit=50
+            )
+            ```
+        """
+        self._ensure_connected()
+
+        # Build query dynamically based on filters
+        query_parts = [
+            """
+            SELECT
+                id, external_id, scheduled_at, status,
+                home_team, away_team, home_team_id, away_team_id,
+                league, league_id, sport, venue,
+                home_score, away_score, metadata
+            FROM matches
+            WHERE status = 'finished'
+              AND (home_team_id = $1 OR away_team_id = $1)
+            """
+        ]
+
+        params: list[Any] = [team_id]
+        param_idx = 2
+
+        # Add league filter if provided
+        if league_id is not None:
+            query_parts.append(f"  AND league_id = ${param_idx}")
+            params.append(league_id)
+            param_idx += 1
+
+        # Add date range filters if provided
+        if date_from is not None:
+            query_parts.append(f"  AND scheduled_at >= ${param_idx}")
+            params.append(date_from)
+            param_idx += 1
+
+        if date_to is not None:
+            query_parts.append(f"  AND scheduled_at <= ${param_idx}")
+            params.append(date_to)
+            param_idx += 1
+
+        # Order by most recent first and apply limit
+        query_parts.append("ORDER BY scheduled_at DESC")
+        query_parts.append(f"LIMIT ${param_idx}")
+        params.append(limit)
+
+        query = "\n".join(query_parts)
+
+        assert self._pool is not None  # Type narrowing for mypy
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(query, *params)
+
+        return [dict(record) for record in records]
