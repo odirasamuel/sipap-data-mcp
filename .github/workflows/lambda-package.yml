@@ -1,0 +1,104 @@
+name: Push Data MCP Lambda Package to S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "*.py"
+      - ".github/workflows/lambda-package.yml"
+  workflow_dispatch:
+
+jobs:
+  resolve-python-versions:
+    name: Resolve latest Lambda Python runtimes
+    uses: odirasamuel/sipap-common/.github/workflows/resolve-lambda-python-versions.yml@main
+    permissions:
+      contents: read
+
+  deploy:
+    name: Push Lambda package
+    needs: resolve-python-versions
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.resolve-python-versions.outputs.matrix) }}
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Validate matrix input
+        shell: bash
+        run: |
+          echo "=== Matrix Validation ==="
+          echo "Received python value: '${{ matrix.python }}'"
+
+          if [[ -z "${{ matrix.python }}" ]]; then
+            echo "❌ ERROR: matrix.python is empty"
+            exit 1
+          fi
+
+          if [[ ! "${{ matrix.python }}" =~ ^3\.[0-9]+$ ]]; then
+            echo "❌ ERROR: matrix.python doesn't match expected format (3.x)"
+            echo "   Got: '${{ matrix.python }}'"
+            exit 1
+          fi
+
+          echo "✅ Matrix value is valid: ${{ matrix.python }}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Verify AWS Identity
+        run: |
+          echo "Python version: ${{ matrix.python }}"
+          aws sts get-caller-identity
+
+      - name: Package Lambda deployment
+        run: |
+          echo "Packaging Lambda code for Python ${{ matrix.python }}..."
+          mkdir -p lambda_deployment
+          rm -f lambda_deployment/data_mcp_lambda_package.zip
+
+          # Package source code (excluding tests, dev files, __pycache__)
+          zip -r lambda_deployment/data_mcp_lambda_package.zip \
+            src/ \
+            -x "*.pyc" "__pycache__/*" "*.git*" "tests/*" "*.md" ".venv/*" "dist/*" "build/*"
+
+          echo "Package created successfully"
+          ls -lh lambda_deployment/data_mcp_lambda_package.zip
+
+      - name: Upload to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_LAMBDA_BUCKET || 'sipap-lambda-packages-dev' }}
+        run: |
+          set -euo pipefail
+
+          PY_FOLDER="python_${{ matrix.python }}"
+          KEY="data/${PY_FOLDER}/data_mcp_lambda_package.zip"
+          ZIP_FILE="lambda_deployment/data_mcp_lambda_package.zip"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          echo "Uploading to s3://${S3_BUCKET}/${KEY}"
+
+          aws s3 cp \
+            "${ZIP_FILE}" \
+            "s3://${S3_BUCKET}/${KEY}" \
+            --metadata "git-sha=${{ github.sha }},git-branch=${{ github.ref_name }},python-version=${{ matrix.python }},package-type=lambda-function,build-date=${BUILD_DATE}"
+
+          echo "✅ Upload successful!"
+          echo "Bucket: ${S3_BUCKET}"
+          echo "Key: ${KEY}"
+          echo "Git SHA: ${{ github.sha }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Python Version: ${{ matrix.python }}"

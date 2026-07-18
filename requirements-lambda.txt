@@ -1,0 +1,15 @@
+# Lambda Layer Dependencies for sipap-data-mcp
+# These are the runtime dependencies that will be packaged into the Lambda layer
+
+# Core SIPAP dependencies
+sipap-common>=0.1.0
+sipap-mcp>=0.1.0
+
+# Database and caching
+asyncpg>=0.29.0
+redis>=5.0.0
+hiredis>=2.3.0
+
+# Additional runtime dependencies from sipap-common layer
+# (pyyaml, jinja2, boto3, sqlalchemy, psycopg2-binary, typing-extensions)
+# These will be inherited from sipap-common layer, no need to duplicate

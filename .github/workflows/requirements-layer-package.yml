@@ -1,0 +1,17 @@
+name: Build Data MCP Requirements Layer
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'requirements-lambda.txt'
+      - '.github/workflows/requirements-layer-package.yml'
+
+jobs:
+  # Call the centralized workflow from sipap-common
+  build-lambda-package:
+    uses: odirasamuel/sipap-common/.github/workflows/build-lambda-package.yml@main
+    secrets:
+      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+      S3_LAMBDA_BUCKET: ${{ secrets.S3_LAMBDA_BUCKET }}
