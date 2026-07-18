@@ -85,7 +85,7 @@ jobs:
           set -euo pipefail
 
           PY_FOLDER="python_${{ matrix.python }}"
-          KEY="data/${PY_FOLDER}/data_mcp_lambda_package.zip"
+          KEY="data-mcp/${PY_FOLDER}/data_mcp_lambda_package.zip"
           ZIP_FILE="lambda_deployment/data_mcp_lambda_package.zip"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
