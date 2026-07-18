@@ -12,7 +12,9 @@ jobs:
   # Call the centralized workflow from sipap-common
   build-lambda-package:
     uses: odirasamuel/sipap-common/.github/workflows/build-lambda-package.yml@main
+    permissions:
+      contents: read
+      id-token: write
     secrets:
       AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
-      S3_LAMBDA_BUCKET: ${{ secrets.S3_LAMBDA_BUCKET }}
-
+      # S3_LAMBDA_BUCKET: ${{ secrets.S3_LAMBDA_BUCKET }}
