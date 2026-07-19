@@ -83,6 +83,7 @@ class AuroraDataClient:
             database=self._database,
             user=self._user,
             password=self._password,
+            ssl='require',  # Aurora requires SSL connections
             min_size=2,
             max_size=10,
             command_timeout=5.0,
