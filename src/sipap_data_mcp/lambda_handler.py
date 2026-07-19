@@ -5,12 +5,39 @@ Provides Lambda entry point for JSON-RPC 2.0 MCP requests.
 
 import json
 import os
+import boto3
 from typing import Any
 
 from sipap_data_mcp.server import SIPAPDataMCP
 
 # Initialize server (singleton for Lambda container reuse)
 _server: SIPAPDataMCP | None = None
+
+
+def get_db_credentials() -> tuple[str, str]:
+    """Fetch database credentials from Secrets Manager.
+
+    Returns:
+        Tuple of (username, password)
+    """
+    credentials_arn = os.environ.get("POSTGRES_CREDENTIALS_ARN")
+    if not credentials_arn:
+        # Fallback to environment variables if no secret ARN
+        return (
+            os.environ.get("POSTGRES_USER", "sipap_readonly"),
+            os.environ.get("POSTGRES_PASSWORD", "")
+        )
+
+    try:
+        sm_client = boto3.client("secretsmanager")
+        response = sm_client.get_secret_value(SecretId=credentials_arn)
+        credentials = json.loads(response["SecretString"])
+        return (credentials.get("username", "sipap_readonly"),
+                credentials.get("password", ""))
+    except Exception as e:
+        print(f"Warning: Failed to fetch credentials from Secrets Manager: {e}")
+        return (os.environ.get("POSTGRES_USER", "sipap_readonly"),
+                os.environ.get("POSTGRES_PASSWORD", ""))
 
 
 def get_server() -> SIPAPDataMCP:
@@ -24,13 +51,19 @@ def get_server() -> SIPAPDataMCP:
     global _server
 
     if _server is None:
-        # Get configuration from environment variables
-        db_host = os.environ.get("DB_HOST", "localhost")
-        db_port = int(os.environ.get("DB_PORT", "5432"))
-        db_name = os.environ.get("DB_NAME", "sipap")
-        db_user = os.environ.get("DB_USER", "sipap_readonly")
-        db_password = os.environ.get("DB_PASSWORD", "")
-        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        # Get configuration from environment variables (AWS Lambda environment)
+        db_host = os.environ.get("POSTGRES_HOST", "localhost")
+        db_port = int(os.environ.get("POSTGRES_PORT", "5432"))
+        db_name = os.environ.get("POSTGRES_DB", "sipap_dev")
+
+        # Fetch database credentials from Secrets Manager
+        db_user, db_password = get_db_credentials()
+
+        # Build Redis URL from endpoint
+        redis_endpoint = os.environ.get("REDIS_ENDPOINT", "localhost:6379")
+        redis_ssl = os.environ.get("REDIS_SSL", "false").lower() == "true"
+        redis_protocol = "rediss" if redis_ssl else "redis"
+        redis_url = f"{redis_protocol}://{redis_endpoint}/0"
 
         # Create server
         _server = SIPAPDataMCP(
