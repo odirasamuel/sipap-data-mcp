@@ -71,9 +71,10 @@ jobs:
           rm -f lambda_deployment/data_mcp_lambda_package.zip
 
           # Package source code (excluding tests, dev files, __pycache__)
-          zip -r lambda_deployment/data_mcp_lambda_package.zip \
-            src/ \
-            -x "*.pyc" "__pycache__/*" "*.git*" "tests/*" "*.md" ".venv/*" "dist/*" "build/*"
+          # Change to src/ directory so sipap_data_mcp/ is at zip root (not src/sipap_data_mcp/)
+          cd src && zip -r ../lambda_deployment/data_mcp_lambda_package.zip \
+            sipap_data_mcp/ \
+            -x "*.pyc" "*__pycache__/*" "*.git*"
 
           echo "Package created successfully"
           ls -lh lambda_deployment/data_mcp_lambda_package.zip
