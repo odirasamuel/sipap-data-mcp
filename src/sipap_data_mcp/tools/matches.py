@@ -161,3 +161,192 @@ async def search_matches(
     matches = await db_client.search_matches(query=query)
 
     return {"matches": matches}
+
+
+# League name mapping for user-friendly queries
+LEAGUE_NAME_MAPPINGS = {
+    # Premier League variations
+    "premier league": "premier-league",
+    "epl": "premier-league",
+    "english premier league": "premier-league",
+    "england": "premier-league",
+
+    # LaLiga variations
+    "laliga": "laliga",
+    "la liga": "laliga",
+    "spanish league": "laliga",
+    "spain": "laliga",
+
+    # Serie A variations
+    "serie a": "serie-a",
+    "italian league": "serie-a",
+    "italy": "serie-a",
+
+    # Bundesliga variations
+    "bundesliga": "bundesliga",
+    "german league": "bundesliga",
+    "germany": "bundesliga",
+
+    # Ligue 1 variations
+    "ligue 1": "ligue-1",
+    "french league": "ligue-1",
+    "france": "ligue-1",
+
+    # Other leagues
+    "eredivisie": "eredivisie",
+    "netherlands": "eredivisie",
+    "dutch league": "eredivisie",
+    "liga portugal": "liga-portugal",
+    "portuguese league": "liga-portugal",
+    "portugal": "liga-portugal",
+    "scottish premiership": "scottish-premiership",
+    "scotland": "scottish-premiership",
+    "super lig": "super-lig",
+    "turkish league": "super-lig",
+    "turkey": "super-lig",
+    "belgian pro league": "belgian-pro-league",
+    "belgium": "belgian-pro-league",
+}
+
+
+def map_league_name_to_id(league_name: str) -> str | None:
+    """Map user-friendly league name to database league ID.
+
+    Args:
+        league_name: User-friendly league name (e.g., "Premier League", "EPL")
+
+    Returns:
+        League ID string or None if not found
+
+    Example:
+        >>> map_league_name_to_id("Premier League")
+        "premier-league"
+        >>> map_league_name_to_id("EPL")
+        "premier-league"
+        >>> map_league_name_to_id("Unknown League")
+        None
+    """
+    return LEAGUE_NAME_MAPPINGS.get(league_name.lower().strip())
+
+
+async def search_fixtures(
+    db_client: AuroraDataClient,
+    league_names: list[str] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str = "scheduled",
+    has_odds: bool = True,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Search for fixtures with flexible filtering.
+
+    This tool provides advanced fixture search with:
+    - League filtering by user-friendly names (e.g., "Premier League", "EPL")
+    - Date range filtering with sensible defaults (next 7 days if not specified)
+    - Status filtering (scheduled, live, finished)
+    - Odds availability filtering (only matches with bookmaker odds)
+    - Result limit
+
+    Designed for batch prediction requests like "20 odds in Premier League this weekend".
+
+    Args:
+        db_client: Database client instance
+        league_names: List of user-friendly league names (e.g., ["Premier League", "LaLiga"])
+                     Maps variations like "EPL" → "premier-league", "Spain" → "laliga"
+        date_from: Start date in ISO 8601 format (YYYY-MM-DD). Defaults to today.
+        date_to: End date in ISO 8601 format (YYYY-MM-DD). Defaults to today + 7 days.
+        status: Match status filter (scheduled, live, finished). Default: "scheduled"
+        has_odds: Only return matches with bookmaker odds available. Default: True
+        limit: Maximum number of fixtures to return. Default: 100
+
+    Returns:
+        Dictionary with:
+        - "fixtures": List of fixture dictionaries matching filters
+        - "count": Number of fixtures returned
+        - "filters_applied": Dictionary showing what filters were used
+
+    Raises:
+        ValueError: If date format is invalid
+        RuntimeError: If database connection fails
+
+    Example:
+        ```python
+        # Basic: Get scheduled fixtures with odds for next 7 days
+        result = await search_fixtures(db_client=client)
+        # Returns: {"fixtures": [...], "count": 45, "filters_applied": {...}}
+
+        # With league filter: Premier League and LaLiga
+        result = await search_fixtures(
+            db_client=client,
+            league_names=["Premier League", "LaLiga"],
+            date_from="2026-08-03",
+            date_to="2026-08-10"
+        )
+
+        # All fixtures (including without odds)
+        result = await search_fixtures(
+            db_client=client,
+            has_odds=False,
+            limit=50
+        )
+        ```
+    """
+    # Apply date defaults
+    if date_from is None:
+        date_from = datetime.now(UTC).date().isoformat()
+    if date_to is None:
+        date_to = (datetime.now(UTC).date() + timedelta(days=7)).isoformat()
+
+    # Map league names to IDs
+    league_ids: list[str] | None = None
+    if league_names:
+        league_ids = []
+        for name in league_names:
+            league_id = map_league_name_to_id(name)
+            if league_id:
+                league_ids.append(league_id)
+            # Silently skip unknown leagues (don't fail the whole query)
+
+    # Query database for each league (if specified) or all leagues
+    # The has_odds filtering is now done at the database level via SQL WHERE clause
+    all_fixtures: list[dict[str, Any]] = []
+
+    if league_ids:
+        # Query each league separately
+        for league_id in league_ids:
+            fixtures = await db_client.get_matches(
+                date_from=date_from,
+                date_to=date_to,
+                status=status,
+                league_id=league_id,
+                has_odds=has_odds,  # Database-level filtering
+            )
+            all_fixtures.extend(fixtures)
+    else:
+        # Query all leagues
+        fixtures = await db_client.get_matches(
+            date_from=date_from,
+            date_to=date_to,
+            status=status,
+            league_id=None,
+            has_odds=has_odds,  # Database-level filtering
+        )
+        all_fixtures = fixtures
+
+    # Apply limit
+    limited_fixtures = all_fixtures[:limit]
+
+    # Return results with metadata
+    return {
+        "fixtures": limited_fixtures,
+        "count": len(limited_fixtures),
+        "filters_applied": {
+            "league_names": league_names,
+            "league_ids": league_ids,
+            "date_from": date_from,
+            "date_to": date_to,
+            "status": status,
+            "has_odds": has_odds,
+            "limit": limit,
+        }
+    }

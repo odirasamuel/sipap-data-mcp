@@ -106,6 +106,7 @@ class AuroraDataClient:
         date_to: str,
         status: str,
         league_id: str | None = None,
+        has_odds: bool = False,
     ) -> list[dict[str, Any]]:
         """Retrieve matches from database within date range.
 
@@ -114,6 +115,7 @@ class AuroraDataClient:
             date_to: End date in ISO 8601 format (YYYY-MM-DD)
             status: Match status filter (scheduled, live, finished)
             league_id: Optional league UUID filter
+            has_odds: Only include matches with odds available (default: False)
 
         Returns:
             List of match dictionaries with keys:
@@ -130,11 +132,20 @@ class AuroraDataClient:
 
         Example:
             ```python
+            # Get all matches
             matches = await client.get_matches(
                 date_from="2026-07-05",
                 date_to="2026-07-12",
                 status="scheduled",
                 league_id="550e8400-e29b-41d4-a716-446655440000"
+            )
+
+            # Get only matches with odds
+            matches_with_odds = await client.get_matches(
+                date_from="2026-07-05",
+                date_to="2026-07-12",
+                status="scheduled",
+                has_odds=True
             )
             ```
         """
@@ -148,6 +159,7 @@ class AuroraDataClient:
             date_to=date_to,
             status=status,
             league_id=league_id,
+            has_odds=has_odds,
         )
 
         # Execute query
@@ -201,6 +213,7 @@ class AuroraDataClient:
         date_to: str,
         status: str,
         league_id: str | None,
+        has_odds: bool = False,
     ) -> tuple[str, tuple[str, ...]]  :
         """Build SQL query and parameters for matches retrieval.
 
@@ -209,6 +222,7 @@ class AuroraDataClient:
             date_to: End date in ISO 8601 format
             status: Match status filter
             league_id: Optional league UUID filter
+            has_odds: Only include matches with odds available (checks metadata->'odds')
 
         Returns:
             Tuple of (query string, parameters tuple)
@@ -225,23 +239,29 @@ class AuroraDataClient:
 
         # Build WHERE clause and parameters
         params: tuple[str, ...]  # Explicitly type to allow variable-length tuples
+
+        # Base WHERE conditions
+        where_conditions = [
+            "scheduled_at >= $1",
+            "scheduled_at <= $2",
+            "status = $3",
+        ]
+        base_params = [date_from, date_to, status]
+
+        # Add league filter if specified
         if league_id is not None:
-            where_clause = """
-                WHERE scheduled_at >= $1
-                  AND scheduled_at <= $2
-                  AND status = $3
-                  AND league_id = $4
-                ORDER BY scheduled_at ASC
-            """
-            params = (date_from, date_to, status, league_id)
-        else:
-            where_clause = """
-                WHERE scheduled_at >= $1
-                  AND scheduled_at <= $2
-                  AND status = $3
-                ORDER BY scheduled_at ASC
-            """
-            params = (date_from, date_to, status)
+            where_conditions.append(f"league_id = ${len(base_params) + 1}")
+            base_params.append(league_id)
+
+        # Add odds filter if requested (uses PostgreSQL JSONB ? operator)
+        if has_odds:
+            where_conditions.append("metadata ? 'odds'")
+
+        where_clause = f"""
+            WHERE {' AND '.join(where_conditions)}
+            ORDER BY scheduled_at ASC
+        """
+        params = tuple(base_params)
 
         return (select_clause + where_clause, params)
 
