@@ -165,3 +165,40 @@ async def get_head_to_head(
     )
 
     return {"head_to_head": h2h_data}
+
+
+async def search_teams(
+    db_client: AuroraDataClient,
+    query: str,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Search for teams by name.
+
+    Args:
+        db_client: Database client instance
+        query: Search query string (team name or partial name)
+        limit: Maximum number of results to return (default: 10)
+
+    Returns:
+        Dictionary with "teams" key containing list of matching teams
+
+    Raises:
+        ValueError: If query is empty
+
+    Example:
+        ```python
+        result = await search_teams(
+            db_client=client,
+            query="Manchester"
+        )
+        # Returns: {"teams": [{"id": "...", "name": "Manchester United", ...}, ...]}
+        ```
+    """
+    # Validate query
+    if not query or query.strip() == "":
+        raise ValueError("Query cannot be empty")
+
+    # Query database
+    teams = await db_client.search_teams(query=query, limit=limit)
+
+    return {"teams": teams}

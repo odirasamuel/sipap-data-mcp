@@ -22,6 +22,7 @@ from sipap_data_mcp.tools import (
     get_odds_movements,
     get_team_stats,
     query_history,
+    search_fixtures,
     search_matches,
 )
 
@@ -29,8 +30,8 @@ from sipap_data_mcp.tools import (
 class SIPAPDataMCP(MCPServer):
     """SIPAP Data MCP Server.
 
-    Provides JSON-RPC 2.0 compliant access to sports data via 11 MCP tools:
-    - 4 match tools (schedule, details, live, search)
+    Provides JSON-RPC 2.0 compliant access to sports data via 12 MCP tools:
+    - 5 match tools (schedule, details, live, search, search_fixtures)
     - 3 team tools (stats, standings, head-to-head)
     - 2 historical tools (query history, form data)
     - 2 odds tools (current odds, movements)
@@ -290,6 +291,81 @@ class SIPAPDataMCP(MCPServer):
         """
         db_client, _ = self._ensure_connections()
         return self._run_async(search_matches(db_client=db_client, query=query))
+
+    @mcp_tool(
+        description="Search for fixtures with flexible filtering (leagues, dates, odds availability)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "league_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of user-friendly league names (e.g., ['Premier League', 'LaLiga'])"
+                },
+                "date_from": {
+                    "type": "string",
+                    "description": "Start date in ISO 8601 format (YYYY-MM-DD). Defaults to today."
+                },
+                "date_to": {
+                    "type": "string",
+                    "description": "End date in ISO 8601 format (YYYY-MM-DD). Defaults to today + 7 days."
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Match status filter (scheduled, live, finished)",
+                    "default": "scheduled"
+                },
+                "has_odds": {
+                    "type": "boolean",
+                    "description": "Only return matches with bookmaker odds available",
+                    "default": True
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of fixtures to return",
+                    "default": 100
+                }
+            },
+            "required": []
+        }
+    )
+    def search_fixtures(
+        self,
+        league_names: list[str] | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        status: str = "scheduled",
+        has_odds: bool = True,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Search for fixtures with flexible filtering.
+
+        Designed for batch prediction requests like "20 odds in Premier League this weekend".
+        Supports league name variations (EPL → Premier League), date ranges, and odds filtering.
+
+        Args:
+            league_names: List of user-friendly league names
+            date_from: Start date (YYYY-MM-DD). Defaults to today.
+            date_to: End date (YYYY-MM-DD). Defaults to today + 7 days.
+            status: Match status filter. Default: "scheduled"
+            has_odds: Only matches with odds. Default: True
+            limit: Max fixtures to return. Default: 100
+
+        Returns:
+            Dictionary with "fixtures", "count", and "filters_applied" keys
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            search_fixtures(
+                db_client=db_client,
+                league_names=league_names,
+                date_from=date_from,
+                date_to=date_to,
+                status=status,
+                has_odds=has_odds,
+                limit=limit,
+            )
+        )
 
     # ========================================================================
     # Team Tools (3)

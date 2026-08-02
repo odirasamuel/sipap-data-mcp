@@ -15,6 +15,7 @@ from sipap_data_mcp.tools.matches import (
     get_live_matches,
     get_match_details,
     get_match_schedule,
+    search_fixtures,
     search_matches,
 )
 from sipap_data_mcp.tools.odds import (
@@ -38,5 +39,6 @@ __all__ = [
     "get_odds_movements",
     "get_team_stats",
     "query_history",
+    "search_fixtures",
     "search_matches",
 ]
