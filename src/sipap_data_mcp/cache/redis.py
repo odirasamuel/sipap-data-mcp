@@ -44,10 +44,15 @@ class RedisCache:
             RuntimeError: If connection fails
         """
         try:
+            # ElastiCache Redis requires TLS/SSL connection
+            # For AWS-managed ElastiCache, we use ssl=True with ssl_cert_reqs=None
+            # to skip certificate validation (AWS manages certificates)
             self._client = redis.from_url(
                 self._url,
                 encoding="utf-8",
-                decode_responses=True
+                decode_responses=True,
+                ssl=True,
+                ssl_cert_reqs=None  # Skip certificate validation for AWS ElastiCache
             )
             # Verify connection
             await self._client.ping()
