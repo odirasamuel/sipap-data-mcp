@@ -307,9 +307,9 @@ class AuroraDataClient:
             where_conditions.append(f"m.league_id = ${len(base_params) + 1}")
             base_params.append(league_id)
 
-        # Add odds filter if requested (uses PostgreSQL JSONB ? operator)
+        # Add odds filter if requested (checks odds table for match)
         if has_odds:
-            where_conditions.append("m.metadata ? 'odds'")
+            where_conditions.append("EXISTS(SELECT 1 FROM odds o WHERE o.match_id = m.id)")
 
         where_clause = f"""
             WHERE {' AND '.join(where_conditions)}
