@@ -278,9 +278,12 @@ class AuroraDataClient:
 
         # Base WHERE conditions (use table alias m.)
         # Convert ISO date strings to datetime.date for asyncpg
+        # IMPORTANT: Cast scheduled_at to date for comparison to include entire day
+        # Without ::date cast, "scheduled_at <= '2026-08-10'" means "<= 2026-08-10 00:00:00"
+        # which excludes matches at 15:30, 20:00, etc. on that date
         where_conditions = [
-            "m.scheduled_at >= $1",
-            "m.scheduled_at <= $2",
+            "m.scheduled_at::date >= $1",
+            "m.scheduled_at::date <= $2",
             "m.status = $3",
         ]
         base_params: list[Any] = [
