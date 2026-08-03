@@ -3,6 +3,7 @@
 Provides Lambda entry point for JSON-RPC 2.0 MCP requests.
 """
 
+import asyncio
 import json
 import os
 import boto3
@@ -10,8 +11,31 @@ from typing import Any
 
 from sipap_data_mcp.server import SIPAPDataMCP
 
+# Global event loop for Lambda container reuse
+# This event loop persists across Lambda invocations (warm starts)
+_event_loop: asyncio.AbstractEventLoop | None = None
+
 # Initialize server (singleton for Lambda container reuse)
 _server: SIPAPDataMCP | None = None
+
+
+def get_event_loop() -> asyncio.AbstractEventLoop:
+    """Get or create persistent event loop for Lambda container.
+
+    Creates event loop once on cold start, reuses on warm starts.
+    The loop is never closed during Lambda container lifetime.
+
+    Returns:
+        Event loop instance
+    """
+    global _event_loop
+
+    if _event_loop is None or _event_loop.is_closed():
+        _event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_event_loop)
+        print("Created new event loop for Lambda container")
+
+    return _event_loop
 
 
 def get_db_credentials() -> tuple[str, str]:
@@ -75,12 +99,12 @@ def get_server() -> SIPAPDataMCP:
             redis_url=redis_url
         )
 
-        # Setup connections (async operations run synchronously)
-        import asyncio
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Get persistent event loop (never closed during container lifetime)
+        loop = get_event_loop()
+
+        # Setup connections using persistent loop
         loop.run_until_complete(_server._setup())
-        loop.close()
+        print("MCP server initialized with persistent event loop")
 
     return _server
 

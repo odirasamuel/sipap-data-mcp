@@ -150,15 +150,18 @@ class SIPAPDataMCP(MCPServer):
     def _run_async(self, coro: Any) -> Any:
         """Run async coroutine synchronously.
 
+        Uses existing event loop if available (Lambda warm start scenario),
+        otherwise creates a new loop for standalone usage.
+
         Args:
             coro: Coroutine to run
 
         Returns:
             Result of coroutine
         """
-        # Check if we're already in an async context
+        # Check if we're already in an async context (loop is running)
         try:
-            asyncio.get_running_loop()
+            running_loop = asyncio.get_running_loop()
             # We're in an async context (like pytest-asyncio)
             # Create a new thread with its own event loop
             import concurrent.futures
@@ -166,8 +169,20 @@ class SIPAPDataMCP(MCPServer):
                 future = executor.submit(asyncio.run, coro)
                 return future.result()
         except RuntimeError:
-            # No running loop, we can use asyncio.run
-            return asyncio.run(coro)
+            # No running loop, check if there's a set event loop (Lambda scenario)
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    # Loop is closed, create new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    return loop.run_until_complete(coro)
+                else:
+                    # Use existing loop (Lambda warm start)
+                    return loop.run_until_complete(coro)
+            except RuntimeError:
+                # No event loop at all, use asyncio.run (creates new loop each time)
+                return asyncio.run(coro)
 
     # ========================================================================
     # Match Tools (4)
