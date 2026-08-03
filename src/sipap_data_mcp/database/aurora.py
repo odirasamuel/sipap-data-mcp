@@ -227,39 +227,42 @@ class AuroraDataClient:
         Returns:
             Tuple of (query string, parameters tuple)
         """
-        # Base SELECT clause
+        # Base SELECT clause with JOINs to get team names
         select_clause = """
             SELECT
-                id, external_id, scheduled_at, status,
-                home_team, away_team, home_team_id, away_team_id,
-                league, league_id, sport, venue,
-                home_score, away_score, metadata
-            FROM matches
+                m.id, m.external_id, m.scheduled_at, m.status,
+                ht.name AS home_team, at.name AS away_team,
+                m.home_team_id, m.away_team_id,
+                m.league, m.league_id, m.sport, m.venue,
+                m.home_score, m.away_score, m.metadata
+            FROM matches m
+            LEFT JOIN teams ht ON m.home_team_id = ht.id
+            LEFT JOIN teams at ON m.away_team_id = at.id
         """
 
         # Build WHERE clause and parameters
         params: tuple[str, ...]  # Explicitly type to allow variable-length tuples
 
-        # Base WHERE conditions
+        # Base WHERE conditions (use table alias m.)
         where_conditions = [
-            "scheduled_at >= $1",
-            "scheduled_at <= $2",
-            "status = $3",
+            "m.scheduled_at >= $1",
+            "m.scheduled_at <= $2",
+            "m.status = $3",
         ]
         base_params = [date_from, date_to, status]
 
         # Add league filter if specified
         if league_id is not None:
-            where_conditions.append(f"league_id = ${len(base_params) + 1}")
+            where_conditions.append(f"m.league_id = ${len(base_params) + 1}")
             base_params.append(league_id)
 
         # Add odds filter if requested (uses PostgreSQL JSONB ? operator)
         if has_odds:
-            where_conditions.append("metadata ? 'odds'")
+            where_conditions.append("m.metadata ? 'odds'")
 
         where_clause = f"""
             WHERE {' AND '.join(where_conditions)}
-            ORDER BY scheduled_at ASC
+            ORDER BY m.scheduled_at ASC
         """
         params = tuple(base_params)
 
@@ -288,12 +291,15 @@ class AuroraDataClient:
 
         query = """
             SELECT
-                id, external_id, scheduled_at, status,
-                home_team, away_team, home_team_id, away_team_id,
-                league, league_id, sport, venue,
-                home_score, away_score, metadata
-            FROM matches
-            WHERE id = $1
+                m.id, m.external_id, m.scheduled_at, m.status,
+                ht.name AS home_team, at.name AS away_team,
+                m.home_team_id, m.away_team_id,
+                m.league, m.league_id, m.sport, m.venue,
+                m.home_score, m.away_score, m.metadata
+            FROM matches m
+            LEFT JOIN teams ht ON m.home_team_id = ht.id
+            LEFT JOIN teams at ON m.away_team_id = at.id
+            WHERE m.id = $1
         """
 
         assert self._pool is not None  # Type narrowing for mypy
@@ -327,14 +333,17 @@ class AuroraDataClient:
         # Search by team name (home or away)
         search_query = """
             SELECT
-                id, external_id, scheduled_at, status,
-                home_team, away_team, home_team_id, away_team_id,
-                league, league_id, sport, venue,
-                home_score, away_score, metadata
-            FROM matches
-            WHERE home_team ILIKE $1
-               OR away_team ILIKE $1
-            ORDER BY scheduled_at DESC
+                m.id, m.external_id, m.scheduled_at, m.status,
+                ht.name AS home_team, at.name AS away_team,
+                m.home_team_id, m.away_team_id,
+                m.league, m.league_id, m.sport, m.venue,
+                m.home_score, m.away_score, m.metadata
+            FROM matches m
+            LEFT JOIN teams ht ON m.home_team_id = ht.id
+            LEFT JOIN teams at ON m.away_team_id = at.id
+            WHERE ht.name ILIKE $1
+               OR at.name ILIKE $1
+            ORDER BY m.scheduled_at DESC
             LIMIT 100
         """
 
@@ -479,14 +488,17 @@ class AuroraDataClient:
         # Get historical matches between these teams
         matches_query = """
             SELECT
-                id, scheduled_at, home_team, away_team,
-                home_team_id, away_team_id,
-                home_score, away_score, status
-            FROM matches
-            WHERE (home_team_id = $1 AND away_team_id = $2)
-               OR (home_team_id = $2 AND away_team_id = $1)
-            AND status = 'finished'
-            ORDER BY scheduled_at DESC
+                m.id, m.scheduled_at,
+                ht.name AS home_team, at.name AS away_team,
+                m.home_team_id, m.away_team_id,
+                m.home_score, m.away_score, m.status
+            FROM matches m
+            LEFT JOIN teams ht ON m.home_team_id = ht.id
+            LEFT JOIN teams at ON m.away_team_id = at.id
+            WHERE (m.home_team_id = $1 AND m.away_team_id = $2)
+               OR (m.home_team_id = $2 AND m.away_team_id = $1)
+            AND m.status = 'finished'
+            ORDER BY m.scheduled_at DESC
             LIMIT $3
         """
 
@@ -582,13 +594,16 @@ class AuroraDataClient:
         query_parts = [
             """
             SELECT
-                id, external_id, scheduled_at, status,
-                home_team, away_team, home_team_id, away_team_id,
-                league, league_id, sport, venue,
-                home_score, away_score, metadata
-            FROM matches
-            WHERE status = 'finished'
-              AND (home_team_id = $1 OR away_team_id = $1)
+                m.id, m.external_id, m.scheduled_at, m.status,
+                ht.name AS home_team, at.name AS away_team,
+                m.home_team_id, m.away_team_id,
+                m.league, m.league_id, m.sport, m.venue,
+                m.home_score, m.away_score, m.metadata
+            FROM matches m
+            LEFT JOIN teams ht ON m.home_team_id = ht.id
+            LEFT JOIN teams at ON m.away_team_id = at.id
+            WHERE m.status = 'finished'
+              AND (m.home_team_id = $1 OR m.away_team_id = $1)
             """
         ]
 
@@ -597,23 +612,23 @@ class AuroraDataClient:
 
         # Add league filter if provided
         if league_id is not None:
-            query_parts.append(f"  AND league_id = ${param_idx}")
+            query_parts.append(f"  AND m.league_id = ${param_idx}")
             params.append(league_id)
             param_idx += 1
 
         # Add date range filters if provided
         if date_from is not None:
-            query_parts.append(f"  AND scheduled_at >= ${param_idx}")
+            query_parts.append(f"  AND m.scheduled_at >= ${param_idx}")
             params.append(date_from)
             param_idx += 1
 
         if date_to is not None:
-            query_parts.append(f"  AND scheduled_at <= ${param_idx}")
+            query_parts.append(f"  AND m.scheduled_at <= ${param_idx}")
             params.append(date_to)
             param_idx += 1
 
         # Order by most recent first and apply limit
-        query_parts.append("ORDER BY scheduled_at DESC")
+        query_parts.append("ORDER BY m.scheduled_at DESC")
         query_parts.append(f"LIMIT ${param_idx}")
         params.append(limit)
 
