@@ -6,6 +6,7 @@ Implements connection pooling, query timeout handling, and proper resource clean
 
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 import asyncpg
 
@@ -167,8 +168,32 @@ class AuroraDataClient:
         async with self._pool.acquire() as connection:
             records = await connection.fetch(query, *params)
 
-        # Convert asyncpg.Record to dict
-        return [dict(record) for record in records]
+        # Convert asyncpg.Record to JSON-serializable dict
+        return [self._record_to_dict(record) for record in records]
+
+    def _record_to_dict(self, record: asyncpg.Record) -> dict[str, Any]:
+        """Convert asyncpg.Record to JSON-serializable dict.
+
+        Handles type conversions:
+        - UUID objects → strings
+        - datetime objects → ISO strings
+        - All other types → as-is
+
+        Args:
+            record: asyncpg.Record from database query
+
+        Returns:
+            JSON-serializable dictionary
+        """
+        result: dict[str, Any] = {}
+        for key, value in dict(record).items():
+            if isinstance(value, UUID):
+                result[key] = str(value)
+            elif isinstance(value, datetime):
+                result[key] = value.isoformat()
+            else:
+                result[key] = value
+        return result
 
     def _parse_date(self, date_str: str) -> datetime:
         """Parse ISO 8601 date string to datetime.date object.
@@ -323,7 +348,7 @@ class AuroraDataClient:
         if record is None:
             return None
 
-        return dict(record)
+        return self._record_to_dict(record)
 
     async def search_matches(self, query: str) -> list[dict[str, Any]]:
         """Search for matches by team name or other criteria.
@@ -369,7 +394,7 @@ class AuroraDataClient:
         async with self._pool.acquire() as connection:
             records = await connection.fetch(search_query, search_term)
 
-        return [dict(record) for record in records]
+        return [self._record_to_dict(record) for record in records]
 
     async def get_team_stats(
         self,
@@ -415,7 +440,7 @@ class AuroraDataClient:
         if record is None:
             return None
 
-        return dict(record)
+        return self._record_to_dict(record)
 
     async def get_league_table(
         self,
@@ -459,7 +484,7 @@ class AuroraDataClient:
         async with self._pool.acquire() as connection:
             records = await connection.fetch(query, league_id, season)
 
-        return [dict(record) for record in records]
+        return [self._record_to_dict(record) for record in records]
 
     async def get_head_to_head(
         self,
@@ -537,7 +562,7 @@ class AuroraDataClient:
         recent_matches = []
 
         for record in match_records:
-            match_dict = dict(record)
+            match_dict = self._record_to_dict(record)
             recent_matches.append(match_dict)
 
             # Determine winner
@@ -654,7 +679,7 @@ class AuroraDataClient:
         async with self._pool.acquire() as connection:
             records = await connection.fetch(query, *params)
 
-        return [dict(record) for record in records]
+        return [self._record_to_dict(record) for record in records]
 
     async def get_match_odds(
         self,
