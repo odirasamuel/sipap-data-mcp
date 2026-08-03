@@ -45,15 +45,21 @@ class RedisCache:
             RuntimeError: If connection fails
         """
         try:
-            # ElastiCache Redis requires TLS/SSL connection
-            # Convert redis:// to rediss:// for SSL - this enables TLS automatically
-            url = self._url.replace("redis://", "rediss://") if self._url.startswith("redis://") else self._url
+            # ElastiCache Redis with TLS uses rediss:// protocol
+            # The URL is already constructed correctly by lambda_handler.py
+
+            # For rediss:// URLs, we need to pass SSL parameters via connection_kwargs
+            connection_kwargs = {}
+            if self._url.startswith("rediss://"):
+                # AWS ElastiCache: Skip certificate verification
+                connection_kwargs["ssl_cert_reqs"] = ssl.CERT_NONE
+                connection_kwargs["ssl_check_hostname"] = False
 
             self._client = redis.from_url(
-                url,
+                self._url,
                 encoding="utf-8",
                 decode_responses=True,
-                ssl_cert_reqs=ssl.CERT_NONE  # Skip certificate verification for AWS ElastiCache
+                **connection_kwargs
             )
             # Verify connection
             await self._client.ping()
