@@ -46,19 +46,14 @@ class RedisCache:
         """
         try:
             # ElastiCache Redis requires TLS/SSL connection
-            # Convert redis:// to rediss:// for SSL
+            # Convert redis:// to rediss:// for SSL - this enables TLS automatically
             url = self._url.replace("redis://", "rediss://") if self._url.startswith("redis://") else self._url
-
-            # Create SSL context that doesn't verify certificates (AWS ElastiCache manages certs)
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
 
             self._client = redis.from_url(
                 url,
                 encoding="utf-8",
                 decode_responses=True,
-                ssl_context=ssl_context
+                ssl_cert_reqs=ssl.CERT_NONE  # Skip certificate verification for AWS ElastiCache
             )
             # Verify connection
             await self._client.ping()
