@@ -121,7 +121,7 @@ class AuroraDataClient:
             List of match dictionaries with keys:
             - id, external_id, scheduled_at, status
             - home_team, away_team, home_team_id, away_team_id
-            - league, league_id, sport, venue
+            - league, league_id
             - home_score, away_score, metadata
 
         Raises:
@@ -233,7 +233,7 @@ class AuroraDataClient:
                 m.id, m.external_id, m.scheduled_at, m.status,
                 ht.name AS home_team, at.name AS away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id, m.sport, m.venue,
+                l.name AS league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
             LEFT JOIN teams ht ON m.home_team_id = ht.id
@@ -295,7 +295,7 @@ class AuroraDataClient:
                 m.id, m.external_id, m.scheduled_at, m.status,
                 ht.name AS home_team, at.name AS away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id, m.sport, m.venue,
+                l.name AS league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
             LEFT JOIN teams ht ON m.home_team_id = ht.id
@@ -338,7 +338,7 @@ class AuroraDataClient:
                 m.id, m.external_id, m.scheduled_at, m.status,
                 ht.name AS home_team, at.name AS away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id, m.sport, m.venue,
+                l.name AS league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
             LEFT JOIN teams ht ON m.home_team_id = ht.id
@@ -600,7 +600,7 @@ class AuroraDataClient:
                 m.id, m.external_id, m.scheduled_at, m.status,
                 ht.name AS home_team, at.name AS away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id, m.sport, m.venue,
+                l.name AS league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
             LEFT JOIN teams ht ON m.home_team_id = ht.id
