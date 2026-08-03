@@ -5,6 +5,7 @@ database load and improve response times.
 """
 
 import json
+import ssl
 from typing import Any
 
 import redis.asyncio as redis
@@ -45,14 +46,19 @@ class RedisCache:
         """
         try:
             # ElastiCache Redis requires TLS/SSL connection
-            # For AWS-managed ElastiCache, we use ssl=True with ssl_cert_reqs=None
-            # to skip certificate validation (AWS manages certificates)
+            # Convert redis:// to rediss:// for SSL
+            url = self._url.replace("redis://", "rediss://") if self._url.startswith("redis://") else self._url
+
+            # Create SSL context that doesn't verify certificates (AWS ElastiCache manages certs)
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
             self._client = redis.from_url(
-                self._url,
+                url,
                 encoding="utf-8",
                 decode_responses=True,
-                ssl=True,
-                ssl_cert_reqs=None  # Skip certificate validation for AWS ElastiCache
+                ssl_context=ssl_context
             )
             # Verify connection
             await self._client.ping()
