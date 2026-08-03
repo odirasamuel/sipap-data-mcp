@@ -163,10 +163,20 @@ class AuroraDataClient:
             has_odds=has_odds,
         )
 
+        # DEBUG: Log query parameters
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(
+            f"get_matches() - date_from={date_from}, date_to={date_to}, "
+            f"status={status}, league_id={league_id}, has_odds={has_odds}, "
+            f"params={params}"
+        )
+
         # Execute query
         assert self._pool is not None  # Type narrowing for mypy
         async with self._pool.acquire() as connection:
             records = await connection.fetch(query, *params)
+            logger.info(f"get_matches() - returned {len(records)} records")
 
         # Convert asyncpg.Record to JSON-serializable dict
         return [self._record_to_dict(record) for record in records]
