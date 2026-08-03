@@ -170,6 +170,26 @@ class AuroraDataClient:
         # Convert asyncpg.Record to dict
         return [dict(record) for record in records]
 
+    def _parse_date(self, date_str: str) -> datetime:
+        """Parse ISO 8601 date string to datetime.date object.
+
+        Args:
+            date_str: Date string in ISO 8601 format (YYYY-MM-DD)
+
+        Returns:
+            datetime.date object
+
+        Raises:
+            ValueError: If date string is not valid ISO 8601 format
+        """
+        try:
+            return datetime.fromisoformat(date_str).date()
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid date format '{date_str}': "
+                f"Expected ISO 8601 format (YYYY-MM-DD)"
+            ) from e
+
     def _validate_dates(self, date_from: str, date_to: str) -> None:
         """Validate date formats are ISO 8601 compliant.
 
@@ -180,21 +200,8 @@ class AuroraDataClient:
         Raises:
             ValueError: If either date is not valid ISO 8601 format
         """
-        try:
-            datetime.fromisoformat(date_from)
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid date format for date_from '{date_from}': "
-                f"Expected ISO 8601 format (YYYY-MM-DD)"
-            ) from e
-
-        try:
-            datetime.fromisoformat(date_to)
-        except ValueError as e:
-            raise ValueError(
-                f"Invalid date format for date_to '{date_to}': "
-                f"Expected ISO 8601 format (YYYY-MM-DD)"
-            ) from e
+        self._parse_date(date_from)  # Validates format
+        self._parse_date(date_to)  # Validates format
 
     def _ensure_connected(self) -> None:
         """Verify client is connected to database.
@@ -214,7 +221,7 @@ class AuroraDataClient:
         status: str,
         league_id: str | None,
         has_odds: bool = False,
-    ) -> tuple[str, tuple[str, ...]]  :
+    ) -> tuple[str, tuple[Any, ...]]:
         """Build SQL query and parameters for matches retrieval.
 
         Args:
@@ -242,15 +249,20 @@ class AuroraDataClient:
         """
 
         # Build WHERE clause and parameters
-        params: tuple[str, ...]  # Explicitly type to allow variable-length tuples
+        params: tuple[Any, ...]  # Allow mixed types (date, str, etc.)
 
         # Base WHERE conditions (use table alias m.)
+        # Convert ISO date strings to datetime.date for asyncpg
         where_conditions = [
             "m.scheduled_at >= $1",
             "m.scheduled_at <= $2",
             "m.status = $3",
         ]
-        base_params = [date_from, date_to, status]
+        base_params: list[Any] = [
+            self._parse_date(date_from),  # Convert to datetime.date
+            self._parse_date(date_to),  # Convert to datetime.date
+            status
+        ]
 
         # Add league filter if specified
         if league_id is not None:
@@ -620,15 +632,15 @@ class AuroraDataClient:
             params.append(league_id)
             param_idx += 1
 
-        # Add date range filters if provided
+        # Add date range filters if provided (convert ISO strings to date objects)
         if date_from is not None:
             query_parts.append(f"  AND m.scheduled_at >= ${param_idx}")
-            params.append(date_from)
+            params.append(self._parse_date(date_from))  # Convert to datetime.date
             param_idx += 1
 
         if date_to is not None:
             query_parts.append(f"  AND m.scheduled_at <= ${param_idx}")
-            params.append(date_to)
+            params.append(self._parse_date(date_to))  # Convert to datetime.date
             param_idx += 1
 
         # Order by most recent first and apply limit
