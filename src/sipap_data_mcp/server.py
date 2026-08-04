@@ -1,7 +1,7 @@
 """SIPAP Data MCP Server - Sports data & odds intelligence.
 
 Provides JSON-RPC 2.0 compliant MCP server for sports data access.
-Wraps 36 data tools with MCP protocol for AI agent communication.
+Wraps 43 data tools with MCP protocol for AI agent communication.
 """
 
 import asyncio
@@ -26,17 +26,19 @@ from sipap_data_mcp.tools import (
     search_matches,
 )
 from sipap_data_mcp.tools import statistical
+from sipap_data_mcp.tools import form
 
 
 class SIPAPDataMCP(MCPServer):
     """SIPAP Data MCP Server.
 
-    Provides JSON-RPC 2.0 compliant access to sports data via 36 MCP tools:
+    Provides JSON-RPC 2.0 compliant access to sports data via 43 MCP tools:
     - 5 match tools (schedule, details, live, search, search_fixtures)
     - 3 team tools (stats, standings, head-to-head)
     - 2 historical tools (query history, form data)
     - 2 odds tools (current odds, movements)
     - 24 statistical analysis tools (h2h, goals, halftime, combinations, specialized)
+    - 7 form pattern tools (momentum, trajectory, consistency, venue, offensive, defensive, pressure)
 
     Example:
         ```python
@@ -1836,5 +1838,298 @@ class SIPAPDataMCP(MCPServer):
                 league=league,
                 seasons_back=seasons_back,
                 current_form_matches=current_form_matches
+            )
+        )
+    # ========================================================================
+    # Form Pattern Tools (7)
+    # ========================================================================
+
+    @mcp_tool(
+        description="Detect consecutive winning/losing/drawing streaks to identify momentum",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches to analyze"},
+                "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_momentum_streak(
+        self,
+        team: str,
+        league: str,
+        match_limit: int = 15,
+        venue: str | None = None
+    ) -> dict[str, Any]:
+        """Detect consecutive result streaks (winning/losing/drawing).
+
+        Args:
+            team: Team name
+            league: League name
+            match_limit: Number of recent matches to analyze
+            venue: Optional venue filter ("home" or "away")
+
+        Returns:
+            Dictionary with momentum streak analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            form.get_momentum_streak(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                match_limit=match_limit,
+                venue=venue
+            )
+        )
+
+    @mcp_tool(
+        description="Compare recent vs previous form to identify improving/declining/stable patterns",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "match_limit": {"type": "integer", "default": 10, "description": "Number of recent matches to analyze"},
+                "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_form_trajectory(
+        self,
+        team: str,
+        league: str,
+        match_limit: int = 10,
+        venue: str | None = None
+    ) -> dict[str, Any]:
+        """Analyze form trajectory (improving/declining/stable).
+
+        Args:
+            team: Team name
+            league: League name
+            match_limit: Number of recent matches to analyze
+            venue: Optional venue filter ("home" or "away")
+
+        Returns:
+            Dictionary with form trajectory analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            form.get_form_trajectory(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                match_limit=match_limit,
+                venue=venue
+            )
+        )
+
+    @mcp_tool(
+        description="Measure form volatility and consistency (stable vs erratic)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches to analyze"},
+                "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_consistency_score(
+        self,
+        team: str,
+        league: str,
+        match_limit: int = 15,
+        venue: str | None = None
+    ) -> dict[str, Any]:
+        """Analyze form consistency and volatility.
+
+        Args:
+            team: Team name
+            league: League name
+            match_limit: Number of recent matches to analyze
+            venue: Optional venue filter ("home" or "away")
+
+        Returns:
+            Dictionary with consistency score analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            form.get_consistency_score(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                match_limit=match_limit,
+                venue=venue
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze home vs away form differences to identify venue impact",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches per venue"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_venue_form_split(
+        self,
+        team: str,
+        league: str,
+        match_limit: int = 15
+    ) -> dict[str, Any]:
+        """Analyze home vs away form differences.
+
+        Args:
+            team: Team name
+            league: League name
+            match_limit: Number of recent matches per venue
+
+        Returns:
+            Dictionary with venue form split analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            form.get_venue_form_split(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                match_limit=match_limit
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze goals scored trajectory (increasing/decreasing/stable)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "match_limit": {"type": "integer", "default": 10, "description": "Number of recent matches to analyze"},
+                "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_goal_scoring_form_trend(
+        self,
+        team: str,
+        league: str,
+        match_limit: int = 10,
+        venue: str | None = None
+    ) -> dict[str, Any]:
+        """Analyze goals scored trajectory (improving/declining).
+
+        Args:
+            team: Team name
+            league: League name
+            match_limit: Number of recent matches to analyze
+            venue: Optional venue filter ("home" or "away")
+
+        Returns:
+            Dictionary with goal scoring form trend analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            form.get_goal_scoring_form_trend(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                match_limit=match_limit,
+                venue=venue
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze goals conceded trajectory (tightening/leaking/stable)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "match_limit": {"type": "integer", "default": 10, "description": "Number of recent matches to analyze"},
+                "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_defensive_form_trend(
+        self,
+        team: str,
+        league: str,
+        match_limit: int = 10,
+        venue: str | None = None
+    ) -> dict[str, Any]:
+        """Analyze goals conceded trajectory (tightening/leaking).
+
+        Args:
+            team: Team name
+            league: League name
+            match_limit: Number of recent matches to analyze
+            venue: Optional venue filter ("home" or "away")
+
+        Returns:
+            Dictionary with defensive form trend analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            form.get_defensive_form_trend(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                match_limit=match_limit,
+                venue=venue
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze form against strong opponents vs weaker opponents",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches to analyze"},
+                "top_team_threshold": {"type": "number", "default": 2.0, "description": "Points per match threshold for strong teams"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_pressure_performance(
+        self,
+        team: str,
+        league: str,
+        match_limit: int = 15,
+        top_team_threshold: float = 2.0
+    ) -> dict[str, Any]:
+        """Analyze form against strong opponents.
+
+        Args:
+            team: Team name
+            league: League name
+            match_limit: Number of recent matches to analyze
+            top_team_threshold: Points per match threshold for strong teams
+
+        Returns:
+            Dictionary with pressure performance analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            form.get_pressure_performance(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                match_limit=match_limit,
+                top_team_threshold=top_team_threshold
             )
         )
