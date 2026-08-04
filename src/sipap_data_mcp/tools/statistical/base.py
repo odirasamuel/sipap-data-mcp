@@ -161,7 +161,7 @@ class BaseStatisticalTool:
         query = """
             SELECT
                 id,
-                scheduled,
+                scheduled_at,
                 home_team,
                 away_team,
                 home_score,
@@ -169,7 +169,7 @@ class BaseStatisticalTool:
                 status,
                 league,
                 metadata,
-                EXTRACT(YEAR FROM scheduled) as season_year
+                EXTRACT(YEAR FROM scheduled_at) as season_year
             FROM matches
             WHERE
                 (
@@ -178,8 +178,8 @@ class BaseStatisticalTool:
                 )
                 AND league = $3
                 AND status = 'finished'
-                AND scheduled >= NOW() - INTERVAL '%s years'
-            ORDER BY scheduled DESC
+                AND scheduled_at >= NOW() - INTERVAL '%s years'
+            ORDER BY scheduled_at DESC
             LIMIT 50
         """ % seasons_back
 
@@ -221,8 +221,8 @@ class BaseStatisticalTool:
             "last_season": last_season,
             "older_seasons": older_seasons,
             "seasons_analyzed": len(set(m['season_year'] for m in all_matches)),
-            "earliest_match": min(m['scheduled'] for m in all_matches),
-            "latest_match": max(m['scheduled'] for m in all_matches)
+            "earliest_match": min(m['scheduled_at'] for m in all_matches),
+            "latest_match": max(m['scheduled_at'] for m in all_matches)
         }
 
     @staticmethod
@@ -261,7 +261,7 @@ class BaseStatisticalTool:
         query = f"""
             SELECT
                 id,
-                scheduled,
+                scheduled_at,
                 home_team,
                 away_team,
                 home_score,
@@ -269,14 +269,14 @@ class BaseStatisticalTool:
                 status,
                 league,
                 metadata,
-                EXTRACT(YEAR FROM scheduled) as season_year
+                EXTRACT(YEAR FROM scheduled_at) as season_year
             FROM matches
             WHERE
                 {venue_column} = $1
                 AND league = $2
                 AND status = 'finished'
-                AND scheduled >= NOW() - INTERVAL '%s years'
-            ORDER BY scheduled DESC
+                AND scheduled_at >= NOW() - INTERVAL '%s years'
+            ORDER BY scheduled_at DESC
             LIMIT 150
         """ % seasons_back
 
@@ -309,6 +309,6 @@ class BaseStatisticalTool:
             "last_season": last_season,
             "older_seasons": older_seasons,
             "seasons_analyzed": len(set(m['season_year'] for m in all_matches)),
-            "earliest_match": min(m['scheduled'] for m in all_matches),
-            "latest_match": max(m['scheduled'] for m in all_matches)
+            "earliest_match": min(m['scheduled_at'] for m in all_matches),
+            "latest_match": max(m['scheduled_at'] for m in all_matches)
         }
