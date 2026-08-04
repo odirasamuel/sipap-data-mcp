@@ -170,7 +170,7 @@ class BaseStatisticalTool:
                 league,
                 metadata,
                 EXTRACT(YEAR FROM scheduled) as season_year
-            FROM fixtures
+            FROM matches
             WHERE
                 (
                     (home_team = $1 AND away_team = $2) OR
@@ -270,7 +270,7 @@ class BaseStatisticalTool:
                 league,
                 metadata,
                 EXTRACT(YEAR FROM scheduled) as season_year
-            FROM fixtures
+            FROM matches
             WHERE
                 {venue_column} = $1
                 AND league = $2
