@@ -1,7 +1,7 @@
 """SIPAP Data MCP Server - Sports data & odds intelligence.
 
 Provides JSON-RPC 2.0 compliant MCP server for sports data access.
-Wraps 11 data tools with MCP protocol for AI agent communication.
+Wraps 36 data tools with MCP protocol for AI agent communication.
 """
 
 import asyncio
@@ -25,16 +25,18 @@ from sipap_data_mcp.tools import (
     search_fixtures,
     search_matches,
 )
+from sipap_data_mcp.tools import statistical
 
 
 class SIPAPDataMCP(MCPServer):
     """SIPAP Data MCP Server.
 
-    Provides JSON-RPC 2.0 compliant access to sports data via 12 MCP tools:
+    Provides JSON-RPC 2.0 compliant access to sports data via 36 MCP tools:
     - 5 match tools (schedule, details, live, search, search_fixtures)
     - 3 team tools (stats, standings, head-to-head)
     - 2 historical tools (query history, form data)
     - 2 odds tools (current odds, movements)
+    - 24 statistical analysis tools (h2h, goals, halftime, combinations, specialized)
 
     Example:
         ```python
@@ -675,4 +677,1164 @@ class SIPAPDataMCP(MCPServer):
             db_client=db_client,
             match_id=match_id,
             time_window=time_window)
+        )
+
+    # ========================================================================
+    # Statistical Analysis Tools - Phase 1: Core Tools (5)
+    # ========================================================================
+
+    @mcp_tool(
+        description="Analyze head-to-head full-time results with recency weighting",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_h2h_full_time_result(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze head-to-head full-time results.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with H2H full-time result analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_h2h_full_time_result(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze total goals in h2h fixtures with over/under thresholds",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_h2h_goals(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze total goals in h2h fixtures.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with H2H goals analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_h2h_goals(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze both teams to score probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_bts(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze both teams to score probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with BTS probability analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_bts(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze home team goal-scoring capability (all home matches)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_home_total_goals(
+        self,
+        team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze home team goal-scoring capability.
+
+        Args:
+            team: Team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with home team goal-scoring analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_home_total_goals(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze away team goal-scoring capability (all away matches)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "team": {"type": "string", "description": "Team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["team", "league"]
+        }
+    )
+    def get_away_total_goals(
+        self,
+        team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze away team goal-scoring capability.
+
+        Args:
+            team: Team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with away team goal-scoring analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_away_total_goals(
+                pool=db_client._pool,
+                team=team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    # ========================================================================
+    # Statistical Analysis Tools - Phase 2: Halftime Tools (5)
+    # ========================================================================
+
+    @mcp_tool(
+        description="Analyze h2h halftime results with recency weighting",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_h2h_half_time_result(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze h2h halftime results.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with H2H halftime result analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_h2h_half_time_result(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze h2h second-half results with recency weighting",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_h2h_2nd_half_result(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze h2h second-half results.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with H2H second-half result analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_h2h_2nd_half_result(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze halftime/fulltime outcome combinations",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_ht_ft_outcome(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze halftime/fulltime outcome combinations.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with HT/FT outcome analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_ht_ft_outcome(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze halftime goals by team",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_half_time_goals(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze halftime goals by team.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with halftime goals analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_half_time_goals(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze second-half goals by team",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_2nd_half_goals(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze second-half goals by team.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with second-half goals analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_2nd_half_goals(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    # ========================================================================
+    # Statistical Analysis Tools - Phase 3: Combination Markets (9)
+    # ========================================================================
+
+    @mcp_tool(
+        description="Analyze double chance probability (Win OR Draw)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_double_chance(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze double chance probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with double chance analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_double_chance(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze win OR total goals probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "goals_threshold": {"type": "number", "default": 2.5, "description": "Goals threshold (e.g., 2.5)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_win_or_total_goals(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        goals_threshold: float = 2.5,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze win OR total goals probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            goals_threshold: Goals threshold
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with win OR total goals analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_win_or_total_goals(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                goals_threshold=goals_threshold,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze win AND total goals probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "goals_threshold": {"type": "number", "default": 2.5, "description": "Goals threshold (e.g., 2.5)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_win_and_total_goals(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        goals_threshold: float = 2.5,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze win AND total goals probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            goals_threshold: Goals threshold
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with win AND total goals analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_win_and_total_goals(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                goals_threshold=goals_threshold,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze win OR both teams score probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_win_or_both_scores(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze win OR both teams score probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with win OR BTS analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_win_or_both_scores(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze win AND both teams score probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_win_and_both_scores(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze win AND both teams score probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with win AND BTS analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_win_and_both_scores(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze both teams score OR multi-goals probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "goals_threshold": {"type": "number", "default": 2.5, "description": "Goals threshold (e.g., 2.5)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_both_scores_or_multi_goals(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        goals_threshold: float = 2.5,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze both teams score OR multi-goals probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            goals_threshold: Goals threshold
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with BTS OR multi-goals analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_both_scores_or_multi_goals(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                goals_threshold=goals_threshold,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze no defeat AND total goals probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "goals_threshold": {"type": "number", "default": 2.5, "description": "Goals threshold (e.g., 2.5)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_no_defeat_and_total_goals(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        goals_threshold: float = 2.5,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze no defeat AND total goals probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            goals_threshold: Goals threshold
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with no defeat AND total goals analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_no_defeat_and_total_goals(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                goals_threshold=goals_threshold,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze avoid halftime defeat probability (Win OR Draw at HT)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_avoid_halftime_defeat(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze avoid halftime defeat probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with avoid HT defeat analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_avoid_halftime_defeat(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze avoid 2nd-half defeat probability",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "perspective": {"type": "string", "enum": ["home", "away"], "default": "home", "description": "Perspective (home or away)"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_avoid_2nd_half_defeat(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        perspective: str = "home",
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze avoid 2nd-half defeat probability.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            perspective: Perspective (home or away)
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with avoid 2nd-half defeat analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_avoid_2nd_half_defeat(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                perspective=perspective,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    # ========================================================================
+    # Statistical Analysis Tools - Phase 4: Specialized Analysis (5)
+    # ========================================================================
+
+    @mcp_tool(
+        description="Analyze total goals range with percentiles",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_total_goals_range(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze total goals range with percentiles.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with total goals range analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_total_goals_range(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze which half home team wins (1st half, 2nd half, or both)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_home_either_half_outcome(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze which half home team wins.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with home team either half outcome analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_home_either_half_outcome(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze which half away team wins (1st half, 2nd half, or both)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_away_either_half_outcome(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze which half away team wins.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with away team either half outcome analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_away_either_half_outcome(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze probability that home team scores",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_home_to_score(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze probability that home team scores.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with home team to score analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_home_to_score(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
+        )
+
+    @mcp_tool(
+        description="Analyze probability that away team scores",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "home_team": {"type": "string", "description": "Home team name"},
+                "away_team": {"type": "string", "description": "Away team name"},
+                "league": {"type": "string", "description": "League name"},
+                "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
+                "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
+            },
+            "required": ["home_team", "away_team", "league"]
+        }
+    )
+    def get_away_to_score(
+        self,
+        home_team: str,
+        away_team: str,
+        league: str,
+        seasons_back: int = 6,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """Analyze probability that away team scores.
+
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            league: League name
+            seasons_back: Number of seasons to analyze
+            current_form_matches: Number of recent matches for form analysis
+
+        Returns:
+            Dictionary with away team to score analysis
+        """
+        db_client, _ = self._ensure_connections()
+        return self._run_async(
+            statistical.get_away_to_score(
+                pool=db_client._pool,
+                home_team=home_team,
+                away_team=away_team,
+                league=league,
+                seasons_back=seasons_back,
+                current_form_matches=current_form_matches
+            )
         )
