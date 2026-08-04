@@ -27,18 +27,20 @@ from sipap_data_mcp.tools import (
 )
 from sipap_data_mcp.tools import statistical
 from sipap_data_mcp.tools import form
+from sipap_data_mcp.tools import market
 
 
 class SIPAPDataMCP(MCPServer):
     """SIPAP Data MCP Server.
 
-    Provides JSON-RPC 2.0 compliant access to sports data via 43 MCP tools:
+    Provides JSON-RPC 2.0 compliant access to sports data via 45 MCP tools:
     - 5 match tools (schedule, details, live, search, search_fixtures)
     - 3 team tools (stats, standings, head-to-head)
     - 2 historical tools (query history, form data)
     - 2 odds tools (current odds, movements)
     - 24 statistical analysis tools (h2h, goals, halftime, combinations, specialized)
     - 7 form pattern tools (momentum, trajectory, consistency, venue, offensive, defensive, pressure)
+    - 2 market intelligence tools (implied probabilities, value opportunities)
 
     Example:
         ```python
@@ -680,6 +682,114 @@ class SIPAPDataMCP(MCPServer):
             match_id=match_id,
             time_window=time_window)
         )
+
+    # ========================================================================
+    # Market Intelligence Tools (2)
+    # ========================================================================
+
+    @mcp_tool(
+        description="Convert betting odds to implied probabilities with overround removal",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "odds_data": {
+                    "type": "object",
+                    "description": "Odds for each outcome (e.g., {'home': 2.10, 'draw': 3.40, 'away': 3.60})",
+                    "additionalProperties": {"type": "number"}
+                },
+                "market_type": {
+                    "type": "string",
+                    "enum": ["h2h", "totals", "btts"],
+                    "default": "h2h",
+                    "description": "Type of market"
+                }
+            },
+            "required": ["odds_data"]
+        }
+    )
+    def get_implied_probabilities(
+        self,
+        odds_data: dict[str, float],
+        market_type: str = "h2h"
+    ) -> dict[str, Any]:
+        """Convert odds to implied probabilities and remove bookmaker overround.
+
+        Args:
+            odds_data: Dictionary with odds for each outcome
+            market_type: Type of market ("h2h", "totals", "btts")
+
+        Returns:
+            Dictionary with implied probabilities, true probabilities, and efficiency rating
+        """
+        return self._run_async(market.get_implied_probabilities(
+            odds_data=odds_data,
+            market_type=market_type
+        ))
+
+    @mcp_tool(
+        description="Identify +EV betting opportunities by comparing model vs market probabilities",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "odds_data": {
+                    "type": "object",
+                    "description": "Odds for each outcome",
+                    "additionalProperties": {"type": "number"}
+                },
+                "model_probabilities": {
+                    "type": "object",
+                    "description": "Model's probability estimates (must sum to ~1.0)",
+                    "additionalProperties": {"type": "number"}
+                },
+                "confidence": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "default": 70,
+                    "description": "Model confidence rating"
+                },
+                "market_type": {
+                    "type": "string",
+                    "enum": ["h2h", "totals", "btts"],
+                    "default": "h2h",
+                    "description": "Type of market"
+                },
+                "min_ev_threshold": {
+                    "type": "number",
+                    "default": 5.0,
+                    "description": "Minimum EV% to be considered an opportunity"
+                }
+            },
+            "required": ["odds_data", "model_probabilities"]
+        }
+    )
+    def get_value_opportunities(
+        self,
+        odds_data: dict[str, float],
+        model_probabilities: dict[str, float],
+        confidence: int = 70,
+        market_type: str = "h2h",
+        min_ev_threshold: float = 5.0
+    ) -> dict[str, Any]:
+        """Identify +EV opportunities by comparing model vs market probabilities.
+
+        Args:
+            odds_data: Dictionary with odds for each outcome
+            model_probabilities: Model's probability estimates
+            confidence: Model confidence rating (0-100)
+            market_type: Type of market
+            min_ev_threshold: Minimum EV% threshold
+
+        Returns:
+            Dictionary with value opportunities, Kelly stakes, and ratings
+        """
+        return self._run_async(market.get_value_opportunities(
+            odds_data=odds_data,
+            model_probabilities=model_probabilities,
+            confidence=confidence,
+            market_type=market_type,
+            min_ev_threshold=min_ev_threshold
+        ))
 
     # ========================================================================
     # Statistical Analysis Tools - Phase 1: Core Tools (5)
