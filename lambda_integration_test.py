@@ -408,25 +408,24 @@ async def insert_test_data() -> dict[str, Any]:
         # Insert 5 team statistics records
         team_stats_sql = """
             INSERT INTO team_statistics (
-                team_id, league_id, season, form,
-                home_played, home_wins, home_draws, home_losses, home_goals_for, home_goals_against,
-                away_played, away_wins, away_draws, away_losses, away_goals_for, away_goals_against,
-                total_played, total_wins, total_draws, total_losses, total_goals_for, total_goals_against,
+                team_id, league_id, season,
+                matches_played_home, wins_home, draws_home, losses_home, goals_for_home, goals_against_home,
+                matches_played_away, wins_away, draws_away, losses_away, goals_for_away, goals_against_away,
+                matches_played_total, wins_total, draws_total, losses_total, goals_for_total, goals_against_total,
                 clean_sheets_home, clean_sheets_away, clean_sheets_total
             ) VALUES
-                (50, 39, '2024', 'WWWDW', 19, 17, 2, 0, 53, 15, 19, 11, 5, 3, 43, 19, 38, 28, 7, 3, 96, 34, 12, 8, 20),
-                (42, 39, '2024', 'WWWWL', 19, 16, 2, 1, 51, 13, 19, 12, 3, 4, 40, 16, 38, 28, 5, 5, 91, 29, 13, 9, 22),
-                (40, 39, '2024', 'DWWWD', 19, 14, 4, 1, 49, 17, 19, 10, 6, 3, 37, 24, 38, 24, 10, 4, 86, 41, 11, 7, 18),
-                (33, 39, '2024', 'WDWWL', 19, 12, 5, 2, 45, 28, 19, 9, 4, 6, 32, 35, 38, 21, 9, 8, 77, 63, 8, 5, 13),
-                (49, 39, '2024', 'LWWDL', 19, 12, 3, 4, 42, 27, 19, 8, 3, 8, 32, 34, 38, 20, 6, 12, 74, 61, 7, 4, 11)
+                (50, 39, '2024', 19, 17, 2, 0, 53, 15, 19, 11, 5, 3, 43, 19, 38, 28, 7, 3, 96, 34, 12, 8, 20),
+                (42, 39, '2024', 19, 16, 2, 1, 51, 13, 19, 12, 3, 4, 40, 16, 38, 28, 5, 5, 91, 29, 13, 9, 22),
+                (40, 39, '2024', 19, 14, 4, 1, 49, 17, 19, 10, 6, 3, 37, 24, 38, 24, 10, 4, 86, 41, 11, 7, 18),
+                (33, 39, '2024', 19, 12, 5, 2, 45, 28, 19, 9, 4, 6, 32, 35, 38, 21, 9, 8, 77, 63, 8, 5, 13),
+                (49, 39, '2024', 19, 12, 3, 4, 42, 27, 19, 8, 3, 8, 32, 34, 38, 20, 6, 12, 74, 61, 7, 4, 11)
             ON CONFLICT (team_id, league_id, season) DO UPDATE SET
-                form = EXCLUDED.form,
-                total_played = EXCLUDED.total_played,
-                total_wins = EXCLUDED.total_wins,
-                total_draws = EXCLUDED.total_draws,
-                total_losses = EXCLUDED.total_losses,
-                total_goals_for = EXCLUDED.total_goals_for,
-                total_goals_against = EXCLUDED.total_goals_against,
+                matches_played_total = EXCLUDED.matches_played_total,
+                wins_total = EXCLUDED.wins_total,
+                draws_total = EXCLUDED.draws_total,
+                losses_total = EXCLUDED.losses_total,
+                goals_for_total = EXCLUDED.goals_for_total,
+                goals_against_total = EXCLUDED.goals_against_total,
                 updated_at = CURRENT_TIMESTAMP;
         """
 
