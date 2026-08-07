@@ -12,6 +12,8 @@ from sipap_mcp import MCPServer, mcp_tool  # type: ignore[import-untyped]
 from sipap_data_mcp.cache.redis import RedisCache
 from sipap_data_mcp.database.aurora import AuroraDataClient
 from sipap_data_mcp.tools import (
+    analyze_news_impact,
+    form,
     get_form_data,
     get_head_to_head,
     get_league_table,
@@ -21,19 +23,18 @@ from sipap_data_mcp.tools import (
     get_match_schedule,
     get_odds_movements,
     get_team_stats,
+    market,
     query_history,
     search_fixtures,
     search_matches,
+    statistical,
 )
-from sipap_data_mcp.tools import statistical
-from sipap_data_mcp.tools import form
-from sipap_data_mcp.tools import market
 
 
 class SIPAPDataMCP(MCPServer):
     """SIPAP Data MCP Server.
 
-    Provides JSON-RPC 2.0 compliant access to sports data via 45 MCP tools:
+    Provides JSON-RPC 2.0 compliant access to sports data via 46 MCP tools:
     - 5 match tools (schedule, details, live, search, search_fixtures)
     - 3 team tools (stats, standings, head-to-head)
     - 2 historical tools (query history, form data)
@@ -41,6 +42,7 @@ class SIPAPDataMCP(MCPServer):
     - 24 statistical analysis tools (h2h, goals, halftime, combinations, specialized)
     - 7 form pattern tools (momentum, trajectory, consistency, venue, offensive, defensive, pressure)
     - 2 market intelligence tools (implied probabilities, value opportunities)
+    - 1 news intelligence tool (analyze news impact)
 
     Example:
         ```python
@@ -183,9 +185,8 @@ class SIPAPDataMCP(MCPServer):
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     return loop.run_until_complete(coro)
-                else:
-                    # Use existing loop (Lambda warm start)
-                    return loop.run_until_complete(coro)
+                # Use existing loop (Lambda warm start)
+                return loop.run_until_complete(coro)
             except RuntimeError:
                 # No event loop at all, use asyncio.run (creates new loop each time)
                 return asyncio.run(coro)
@@ -393,118 +394,165 @@ class SIPAPDataMCP(MCPServer):
     # ========================================================================
 
     @mcp_tool(
-        description="Get team statistics for a season",
+        description="Get team statistics for a season (Phase 3: uses API-Football integer IDs)",
         input_schema={
             "type": "object",
             "properties": {
                 "team_id": {
-                    "type": "string",
-                    "description": "Team UUID"
+                    "type": "integer",
+                    "description": "API-Football team ID (e.g., 50 for Manchester City)"
+                },
+                "league_id": {
+                    "type": "integer",
+                    "description": "API-Football league ID (e.g., 39 for Premier League)"
                 },
                 "season": {
                     "type": "string",
-                    "description": "Season (e.g., '2024-2025')"
+                    "description": "Season year (e.g., '2024' for 2024-2025 season)"
                 }
             },
-            "required": ["team_id", "season"]
+            "required": ["team_id", "league_id", "season"]
         }
     )
-    def get_team_stats(self, team_id: str, season: str) -> dict[str, Any]:
+    def get_team_stats(self, team_id: int, league_id: int, season: str) -> dict[str, Any]:
         """Get team statistics for a season.
 
+        UPDATED for Phase 3: Now uses integer IDs and includes Redis caching.
+
         Args:
-            team_id: Team UUID
-            season: Season (e.g., '2024-2025')
+            team_id: API-Football team ID (e.g., 50)
+            league_id: API-Football league ID (e.g., 39)
+            season: Season year (e.g., '2024')
 
         Returns:
             Dictionary with team statistics
         """
-        db_client, _ = self._ensure_connections()
-        return self._run_async(get_team_stats(
+        db_client, cache = self._ensure_connections()
+
+        # Try cache first (6-hour TTL - stats update daily at 2 AM)
+        cache_key = f"team_stats:{team_id}:{league_id}:{season}"
+        cached = self._run_async(cache.get(cache_key))
+        if cached:
+            return cached
+
+        # Cache miss - query database
+        result = self._run_async(get_team_stats(
             db_client=db_client,
             team_id=team_id,
+            league_id=league_id,
             season=season)
         )
 
+        # Cache result for 6 hours
+        self._run_async(cache.set(cache_key, result, ttl=21600))
+
+        return result
+
     @mcp_tool(
-        description="Get league standings/table",
+        description="Get league standings/table (Phase 3: uses API-Football integer IDs)",
         input_schema={
             "type": "object",
             "properties": {
                 "league_id": {
-                    "type": "string",
-                    "description": "League UUID"
+                    "type": "integer",
+                    "description": "API-Football league ID (e.g., 39 for Premier League)"
                 },
                 "season": {
                     "type": "string",
-                    "description": "Season (e.g., '2024-2025')"
+                    "description": "Season year (e.g., '2024' for 2024-2025 season)"
                 }
             },
             "required": ["league_id", "season"]
         }
     )
-    def get_league_table(self, league_id: str, season: str) -> dict[str, Any]:
+    def get_league_table(self, league_id: int, season: str) -> dict[str, Any]:
         """Get league standings/table.
 
+        UPDATED for Phase 3: Now uses integer league ID and includes Redis caching.
+
         Args:
-            league_id: League UUID
-            season: Season (e.g., '2024-2025')
+            league_id: API-Football league ID (e.g., 39)
+            season: Season year (e.g., '2024')
 
         Returns:
             Dictionary with league standings
         """
-        db_client, _ = self._ensure_connections()
-        return self._run_async(get_league_table(
+        db_client, cache = self._ensure_connections()
+
+        # Try cache first (6-hour TTL - standings update daily at 1 AM)
+        cache_key = f"standings:{league_id}:{season}"
+        cached = self._run_async(cache.get(cache_key))
+        if cached:
+            return cached
+
+        # Cache miss - query database
+        result = self._run_async(get_league_table(
             db_client=db_client,
             league_id=league_id,
             season=season)
         )
 
+        # Cache result for 6 hours
+        self._run_async(cache.set(cache_key, result, ttl=21600))
+
+        return result
+
     @mcp_tool(
-        description="Get head-to-head match history between two teams",
+        description="Get head-to-head statistics between two teams (Phase 3: uses API-Football integer IDs)",
         input_schema={
             "type": "object",
             "properties": {
-                "team1_id": {
-                    "type": "string",
-                    "description": "First team UUID"
-                },
-                "team2_id": {
-                    "type": "string",
-                    "description": "Second team UUID"
-                },
-                "limit": {
+                "home_team_id": {
                     "type": "integer",
-                    "description": "Maximum number of matches to return",
-                    "default": 10
+                    "description": "API-Football home team ID (e.g., 50 for Manchester City)"
+                },
+                "away_team_id": {
+                    "type": "integer",
+                    "description": "API-Football away team ID (e.g., 42 for Arsenal)"
                 }
             },
-            "required": ["team1_id", "team2_id"]
+            "required": ["home_team_id", "away_team_id"]
         }
     )
     def get_head_to_head(
         self,
-        team1_id: str,
-        team2_id: str,
-        limit: int = 10
+        home_team_id: int,
+        away_team_id: int
     ) -> dict[str, Any]:
-        """Get head-to-head match history.
+        """Get head-to-head statistics between two teams.
+
+        UPDATED for Phase 3: Now uses integer team IDs and includes Redis caching.
 
         Args:
-            team1_id: First team UUID
-            team2_id: Second team UUID
-            limit: Maximum number of matches
+            home_team_id: API-Football home team ID (e.g., 50)
+            away_team_id: API-Football away team ID (e.g., 42)
 
         Returns:
-            Dictionary with H2H match history
+            Dictionary with H2H statistics (last 10 matches, wins, draws)
         """
-        db_client, _ = self._ensure_connections()
-        return self._run_async(get_head_to_head(
+        db_client, cache = self._ensure_connections()
+
+        # Ensure correct ordering for cache key (team_1_id < team_2_id)
+        team_a = min(home_team_id, away_team_id)
+        team_b = max(home_team_id, away_team_id)
+
+        # Try cache first (24-hour TTL - H2H updates on new fixtures)
+        cache_key = f"h2h:{team_a}:{team_b}"
+        cached = self._run_async(cache.get(cache_key))
+        if cached:
+            return cached
+
+        # Cache miss - query database
+        result = self._run_async(get_head_to_head(
             db_client=db_client,
-            team1_id=team1_id,
-            team2_id=team2_id,
-            limit=limit)
+            home_team_id=home_team_id,
+            away_team_id=away_team_id)
         )
+
+        # Cache result for 24 hours
+        self._run_async(cache.set(cache_key, result, ttl=86400))
+
+        return result
 
     # ========================================================================
     # Historical Tools (2)
@@ -614,35 +662,58 @@ class SIPAPDataMCP(MCPServer):
     # ========================================================================
 
     @mcp_tool(
-        description="Get current betting odds for a match from multiple bookmakers",
+        description="Get betting odds for a match (Phase 3: uses API-Football integer IDs)",
         input_schema={
             "type": "object",
             "properties": {
-                "match_id": {
-                    "type": "string",
-                    "description": "Match UUID"
+                "fixture_id": {
+                    "type": "integer",
+                    "description": "API-Football fixture ID"
+                },
+                "is_live": {
+                    "type": "boolean",
+                    "description": "Whether to fetch live odds (default: False for pre-match)",
+                    "default": False
                 }
             },
-            "required": ["match_id"]
+            "required": ["fixture_id"]
         }
     )
     def get_match_odds(
         self,
-        match_id: str
-    ) -> dict[str, Any] | None:
-        """Get current betting odds for a match.
+        fixture_id: int,
+        is_live: bool = False
+    ) -> dict[str, Any]:
+        """Get betting odds for a match.
+
+        UPDATED for Phase 3: Now uses integer fixture ID and includes Redis caching.
 
         Args:
-            match_id: Match UUID
+            fixture_id: API-Football fixture ID
+            is_live: Whether to fetch live odds
 
         Returns:
-            Dictionary with betting odds or None if no odds available
+            Dictionary with betting odds from multiple bookmakers
         """
-        db_client, _ = self._ensure_connections()
-        return self._run_async(get_match_odds(
+        db_client, cache = self._ensure_connections()
+
+        # Try cache first (5-minute TTL - odds update frequently)
+        cache_key = f"odds:{fixture_id}:{'live' if is_live else 'prematch'}"
+        cached = self._run_async(cache.get(cache_key))
+        if cached:
+            return cached
+
+        # Cache miss - query database
+        result = self._run_async(get_match_odds(
             db_client=db_client,
-            match_id=match_id)
+            fixture_id=fixture_id,
+            is_live=is_live)
         )
+
+        # Cache result for 5 minutes
+        self._run_async(cache.set(cache_key, result, ttl=300))
+
+        return result
 
     @mcp_tool(
         description="Track odds movements over time for a match",
@@ -2243,3 +2314,73 @@ class SIPAPDataMCP(MCPServer):
                 top_team_threshold=top_team_threshold
             )
         )
+
+
+    # ========================================================================
+    # News Intelligence Tool (1)
+    # ========================================================================
+
+    @mcp_tool(
+        description="Analyze news impact on match prediction using Bedrock News Intelligence Agent",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "match_id": {
+                    "type": "string",
+                    "description": "Match identifier (e.g., 'arsenal_vs_chelsea_20260810')"
+                },
+                "home_team": {
+                    "type": "string",
+                    "description": "Home team name (e.g., 'Arsenal')"
+                },
+                "away_team": {
+                    "type": "string",
+                    "description": "Away team name (e.g., 'Chelsea')"
+                },
+                "match_date": {
+                    "type": "string",
+                    "description": "Match date in ISO 8601 format (e.g., '2026-08-10')"
+                },
+                "base_probability": {
+                    "type": "number",
+                    "description": "Baseline probability from Statistical+Form ensemble (0.0-1.0)",
+                    "minimum": 0.0,
+                    "maximum": 1.0
+                }
+            },
+            "required": ["match_id", "home_team", "away_team", "match_date", "base_probability"]
+        }
+    )
+    def analyze_news_impact_tool(
+        self,
+        match_id: str,
+        home_team: str,
+        away_team: str,
+        match_date: str,
+        base_probability: float
+    ) -> dict[str, Any]:
+        """Analyze news impact on match prediction.
+
+        Invokes Bedrock News Intelligence Agent which searches news sources,
+        identifies injuries/suspensions/manager issues, and quantifies impact.
+
+        Args:
+            match_id: Match identifier
+            home_team: Home team name
+            away_team: Away team name
+            match_date: Match date (ISO 8601)
+            base_probability: Baseline probability (0.0-1.0)
+
+        Returns:
+            Dictionary with prediction, reasoning, evidence, news_items
+        """
+        return self._run_async(
+            analyze_news_impact(
+                match_id=match_id,
+                home_team=home_team,
+                away_team=away_team,
+                match_date=match_date,
+                base_probability=base_probability
+            )
+        )
+
