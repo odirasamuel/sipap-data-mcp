@@ -4,7 +4,7 @@ This module provides async database access to SIPAP's normalized sports data sch
 Implements connection pooling, query timeout handling, and proper resource cleanup.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -205,7 +205,7 @@ class AuroraDataClient:
                 result[key] = value
         return result
 
-    def _parse_date(self, date_str: str) -> datetime:
+    def _parse_date(self, date_str: str) -> date:
         """Parse ISO 8601 date string to datetime.date object.
 
         Args:
@@ -411,17 +411,23 @@ class AuroraDataClient:
 
     async def get_team_stats(
         self,
-        team_id: str,
+        team_id: int,
+        league_id: int,
         season: str,
     ) -> dict[str, Any] | None:
         """Retrieve team statistics for a specific season.
 
+        UPDATED: Now queries team_statistics table (Phase 3 schema).
+        OLD: Queried team_stats table with UUID
+        NEW: Queries team_statistics table with integer IDs from API-Football
+
         Args:
-            team_id: Team UUID
-            season: Season in format "YYYY-YYYY"
+            team_id: API-Football team ID (e.g., 50 for Manchester City)
+            league_id: API-Football league ID (e.g., 39 for Premier League)
+            season: Season year as string (e.g., "2024" for 2024-2025 season)
 
         Returns:
-            Team statistics dictionary or None if not found
+            Team statistics dictionary with home/away/total splits, or None if not found
 
         Raises:
             RuntimeError: If client not connected
@@ -429,45 +435,31 @@ class AuroraDataClient:
         Example:
             ```python
             stats = await client.get_team_stats(
-                team_id="team-uuid-1",
-                season="2024-2025"
+                team_id=50,
+                league_id=39,
+                season="2024"
             )
             ```
         """
-        self._ensure_connected()
-
-        query = """
-            SELECT
-                team_id, team_name, season,
-                matches_played, wins, draws, losses,
-                goals_scored, goals_conceded, goal_difference,
-                points, form, home_record, away_record
-            FROM team_stats
-            WHERE team_id = $1 AND season = $2
-        """
-
-        assert self._pool is not None  # Type narrowing for mypy
-        async with self._pool.acquire() as connection:
-            record = await connection.fetchrow(query, team_id, season)
-
-        if record is None:
-            return None
-
-        return self._record_to_dict(record)
+        return await self.get_team_statistics(team_id, league_id, season)
 
     async def get_league_table(
         self,
-        league_id: str,
+        league_id: int,
         season: str,
     ) -> list[dict[str, Any]]:
         """Retrieve league table/standings for a specific season.
 
+        UPDATED: Now queries standings table (Phase 3 schema).
+        OLD: Queried league_standings table with UUID, computed from matches on-the-fly
+        NEW: Queries pre-computed standings table with integer IDs (faster, more accurate)
+
         Args:
-            league_id: League UUID
-            season: Season in format "YYYY-YYYY"
+            league_id: API-Football league ID (e.g., 39 for Premier League)
+            season: Season year as string (e.g., "2024" for 2024-2025 season)
 
         Returns:
-            List of team standings sorted by position
+            List of team standings sorted by rank (1st place first)
 
         Raises:
             RuntimeError: If client not connected
@@ -475,49 +467,35 @@ class AuroraDataClient:
         Example:
             ```python
             standings = await client.get_league_table(
-                league_id="league-uuid-1",
-                season="2024-2025"
+                league_id=39,
+                season="2024"
             )
             ```
         """
-        self._ensure_connected()
-
-        query = """
-            SELECT
-                position, team_name, team_id,
-                matches_played, wins, draws, losses,
-                goals_scored, goals_conceded, goal_difference,
-                points, form
-            FROM league_standings
-            WHERE league_id = $1 AND season = $2
-            ORDER BY position ASC
-        """
-
-        assert self._pool is not None  # Type narrowing for mypy
-        async with self._pool.acquire() as connection:
-            records = await connection.fetch(query, league_id, season)
-
-        return [self._record_to_dict(record) for record in records]
+        return await self.get_standings(league_id, season)
 
     async def get_head_to_head(
         self,
-        team1_id: str,
-        team2_id: str,
-        limit: int = 10,
+        home_team_id: int,
+        away_team_id: int,
     ) -> dict[str, Any]:
         """Retrieve head-to-head statistics between two teams.
 
+        UPDATED: Now queries head_to_head table (Phase 3 schema).
+        OLD: Queried matches table with complex logic:
+             WHERE (home = A AND away = B) OR (home = B AND away = A)
+        NEW: Queries pre-computed head_to_head table (faster, includes last 10 matches)
+
         Args:
-            team1_id: First team UUID
-            team2_id: Second team UUID
-            limit: Maximum number of recent matches to include
+            home_team_id: API-Football home team ID (e.g., 50 for Manchester City)
+            away_team_id: API-Football away team ID (e.g., 42 for Arsenal)
 
         Returns:
             Head-to-head statistics dictionary with:
-            - team1_id, team2_id
-            - team1_name, team2_name
-            - total_matches, team1_wins, team2_wins, draws
-            - recent_matches
+            - team_1_id, team_2_id (auto-ordered: team_1_id < team_2_id)
+            - last_10_matches (JSONB array of recent matches)
+            - team_1_wins, team_2_wins, draws
+            Returns empty structure if no H2H history exists.
 
         Raises:
             RuntimeError: If client not connected
@@ -525,88 +503,30 @@ class AuroraDataClient:
         Example:
             ```python
             h2h = await client.get_head_to_head(
-                team1_id="team-uuid-1",
-                team2_id="team-uuid-2",
-                limit=10
+                home_team_id=50,  # Man City
+                away_team_id=42   # Arsenal
             )
+            # Returns: {
+            #   "team_1_id": 42, "team_2_id": 50,
+            #   "team_1_wins": 5, "team_2_wins": 3, "draws": 2,
+            #   "last_10_matches": [...]
+            # }
             ```
         """
-        self._ensure_connected()
+        h2h_stats = await self.get_head_to_head_stats(home_team_id, away_team_id)
 
-        # Get team names
-        team_names_query = """
-            SELECT id, name FROM teams WHERE id = $1 OR id = $2
-        """
+        if not h2h_stats:
+            # Return empty structure if no H2H data
+            return {
+                'team_1_id': min(home_team_id, away_team_id),
+                'team_2_id': max(home_team_id, away_team_id),
+                'last_10_matches': [],
+                'team_1_wins': 0,
+                'team_2_wins': 0,
+                'draws': 0,
+            }
 
-        # Get historical matches between these teams
-        matches_query = """
-            SELECT
-                m.id, m.scheduled_at,
-                ht.name AS home_team, at.name AS away_team,
-                m.home_team_id, m.away_team_id,
-                m.home_score, m.away_score, m.status
-            FROM matches m
-            LEFT JOIN teams ht ON m.home_team_id = ht.id
-            LEFT JOIN teams at ON m.away_team_id = at.id
-            WHERE (m.home_team_id = $1 AND m.away_team_id = $2)
-               OR (m.home_team_id = $2 AND m.away_team_id = $1)
-            AND m.status = 'finished'
-            ORDER BY m.scheduled_at DESC
-            LIMIT $3
-        """
-
-        assert self._pool is not None  # Type narrowing for mypy
-        async with self._pool.acquire() as connection:
-            # Get team names
-            team_records = await connection.fetch(team_names_query, team1_id, team2_id)
-            teams_dict = {str(record["id"]): record["name"] for record in team_records}
-
-            team1_name = teams_dict.get(team1_id, "Unknown Team")
-            team2_name = teams_dict.get(team2_id, "Unknown Team")
-
-            # Get historical matches
-            match_records = await connection.fetch(matches_query, team1_id, team2_id, limit)
-
-        # Calculate statistics
-        total_matches = len(match_records)
-        team1_wins = 0
-        team2_wins = 0
-        draws = 0
-        recent_matches = []
-
-        for record in match_records:
-            match_dict = self._record_to_dict(record)
-            recent_matches.append(match_dict)
-
-            # Determine winner
-            if match_dict["home_team_id"] == team1_id:
-                # Team1 is home
-                if match_dict["home_score"] > match_dict["away_score"]:
-                    team1_wins += 1
-                elif match_dict["home_score"] < match_dict["away_score"]:
-                    team2_wins += 1
-                else:
-                    draws += 1
-            else:
-                # Team1 is away
-                if match_dict["away_score"] > match_dict["home_score"]:
-                    team1_wins += 1
-                elif match_dict["away_score"] < match_dict["home_score"]:
-                    team2_wins += 1
-                else:
-                    draws += 1
-
-        return {
-            "team1_id": team1_id,
-            "team2_id": team2_id,
-            "team1_name": team1_name,
-            "team2_name": team2_name,
-            "total_matches": total_matches,
-            "team1_wins": team1_wins,
-            "team2_wins": team2_wins,
-            "draws": draws,
-            "recent_matches": recent_matches,
-        }
+        return h2h_stats
 
     async def query_match_history(
         self,
@@ -696,53 +616,60 @@ class AuroraDataClient:
 
     async def get_match_odds(
         self,
-        match_id: str,
-    ) -> dict[str, Any] | None:
-        """Get betting odds for a match from multiple bookmakers.
+        fixture_id: int,
+        is_live: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Get betting odds for a match from dedicated odds table.
+
+        UPDATED: Now queries odds table (Phase 3 schema).
+        OLD: matches.metadata->'odds' JSONB column (slow, not indexed)
+        NEW: odds table (dedicated, indexed, faster)
 
         Args:
-            match_id: Match UUID
+            fixture_id: API-Football fixture ID
+            is_live: Whether to fetch live odds (default: False for pre-match)
 
         Returns:
-            Dictionary with odds data (bookmakers, best_odds, average_odds)
-            or None if no odds available
+            List of odds records from different bookmakers. Each record contains:
+            fixture_id, bookmaker_id, bookmaker_name, market, home_odds,
+            draw_odds, away_odds, is_live, created_at.
 
         Raises:
             RuntimeError: If client not connected
 
         Example:
             ```python
-            odds = await client.get_match_odds("match-uuid-1")
-            # Returns: {"bookmakers": [...], "best_odds": {...}, ...}
+            odds = await client.get_match_odds(fixture_id=1234567)
+            # Returns: [
+            #   {
+            #     "bookmaker_name": "Bet365",
+            #     "market": "1X2",
+            #     "home_odds": 1.85,
+            #     "draw_odds": 3.40,
+            #     "away_odds": 4.20,
+            #     ...
+            #   },
+            #   ...
+            # ]
             ```
         """
         self._ensure_connected()
 
         query = """
             SELECT
-                id AS match_id,
-                metadata->'odds' AS odds_data
-            FROM matches
-            WHERE id = $1
-              AND metadata ? 'odds'
+                fixture_id, bookmaker_id, bookmaker_name,
+                market, home_odds, draw_odds, away_odds,
+                is_live, created_at
+            FROM odds
+            WHERE fixture_id = $1 AND is_live = $2
+            ORDER BY bookmaker_name, market
         """
 
         assert self._pool is not None
-        async with self._pool.acquire() as connection:
-            record = await connection.fetchrow(query, match_id)
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, fixture_id, is_live)
 
-        if record is None or record["odds_data"] is None:
-            return None
-
-        # Parse odds data from JSONB
-        odds_data = dict(record["odds_data"])
-
-        return {
-            "match_id": record["match_id"],
-            "bookmakers": odds_data.get("bookmakers", []),
-            "best_odds": odds_data.get("best_odds", {}),
-            "average_odds": odds_data.get("average_odds", {}),
-        }
+        return [self._record_to_dict(row) for row in rows]
 
     async def get_odds_movements(
         self,
@@ -797,3 +724,287 @@ class AuroraDataClient:
             "current_odds": odds_history.get("current_odds", {}),
             "movement_summary": odds_history.get("movement_summary", {}),
         }
+
+    # ================================================================================
+    # Phase 3 Schema Methods (API-Football Integration)
+    # ================================================================================
+    # These methods query dedicated Phase 3 tables populated by sipap-batch-scraper
+    # jobs. They replace JSONB queries with proper relational schema for better
+    # performance and data integrity.
+
+    async def get_standings(
+        self,
+        league_id: int,
+        season: str,
+    ) -> list[dict[str, Any]]:
+        """Retrieve league standings from standings table.
+
+        Args:
+            league_id: API-Football league ID (e.g., 39 for Premier League)
+            season: Season year as string (e.g., "2024" for 2024-2025 season)
+
+        Returns:
+            List of standings records ordered by rank (1st place first).
+            Each record contains: team_id, team_name, rank, points, played,
+            wins, draws, losses, goals_for, goals_against, goal_difference,
+            form, home/away splits.
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            standings = await client.get_standings(
+                league_id=39,  # Premier League
+                season="2024"
+            )
+            # Returns: [{"rank": 1, "team_name": "Arsenal", ...}, ...]
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                team_id, team_name, rank, points, played,
+                wins, draws, losses, goals_for, goals_against,
+                goal_difference, form,
+                home_played, home_wins, home_draws, home_losses,
+                away_played, away_wins, away_draws, away_losses
+            FROM standings
+            WHERE league_id = $1 AND season = $2
+            ORDER BY rank ASC
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, league_id, season)
+
+        return [self._record_to_dict(row) for row in rows]
+
+    async def get_team_statistics(
+        self,
+        team_id: int,
+        league_id: int,
+        season: str,
+    ) -> dict[str, Any] | None:
+        """Retrieve team statistics from team_statistics table.
+
+        Returns comprehensive team statistics with home/away/total splits (27 columns).
+
+        Args:
+            team_id: API-Football team ID (e.g., 50 for Manchester City)
+            league_id: API-Football league ID (e.g., 39 for Premier League)
+            season: Season year as string (e.g., "2024")
+
+        Returns:
+            Team statistics record with form and detailed splits, or None if not found.
+            Includes: total_*, home_*, away_* columns for matches, wins, goals, etc.
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            stats = await client.get_team_statistics(
+                team_id=50,
+                league_id=39,
+                season="2024"
+            )
+            # Returns: {"total_played": 38, "home_wins": 15, ...}
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT * FROM team_statistics
+            WHERE team_id = $1 AND league_id = $2 AND season = $3
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(query, team_id, league_id, season)
+
+        return self._record_to_dict(row) if row else None
+
+    async def get_injuries(
+        self,
+        fixture_id: int,
+    ) -> list[dict[str, Any]]:
+        """Retrieve player injuries for a specific fixture.
+
+        Args:
+            fixture_id: API-Football fixture ID
+
+        Returns:
+            List of injury records for the fixture. Each record contains:
+            player_id, player_name, player_photo, team_id, team_name,
+            injury_type, injury_reason, expected_return_date.
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            injuries = await client.get_injuries(fixture_id=1234567)
+            # Returns: [{"player_name": "Bukayo Saka", "injury_type": "Muscle", ...}, ...]
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                player_id, player_name, player_photo,
+                team_id, team_name,
+                injury_type, injury_reason, expected_return_date
+            FROM injuries
+            WHERE fixture_id = $1
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, fixture_id)
+
+        return [self._record_to_dict(row) for row in rows]
+
+    async def get_lineups(
+        self,
+        fixture_id: int,
+    ) -> dict[str, Any] | None:
+        """Retrieve team lineups for a specific fixture.
+
+        Args:
+            fixture_id: API-Football fixture ID
+
+        Returns:
+            Dictionary with fixture_id, home_team_lineup (JSONB), away_team_lineup (JSONB),
+            or None if lineups not available yet.
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            lineups = await client.get_lineups(fixture_id=1234567)
+            # Returns: {
+            #   "fixture_id": 1234567,
+            #   "home_team_lineup": {"formation": "4-3-3", "startXI": [...], ...},
+            #   "away_team_lineup": {"formation": "4-2-3-1", "startXI": [...], ...}
+            # }
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                fixture_id,
+                home_team_lineup,
+                away_team_lineup
+            FROM lineups
+            WHERE fixture_id = $1
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(query, fixture_id)
+
+        return self._record_to_dict(row) if row else None
+
+    async def get_head_to_head_stats(
+        self,
+        team_1_id: int,
+        team_2_id: int,
+    ) -> dict[str, Any] | None:
+        """Retrieve head-to-head statistics between two teams.
+
+        Automatically orders team IDs (team_1_id < team_2_id) to match database constraint.
+
+        Args:
+            team_1_id: API-Football team ID (e.g., 50 for Manchester City)
+            team_2_id: API-Football team ID (e.g., 42 for Arsenal)
+
+        Returns:
+            H2H statistics record with:
+            - team_1_id, team_2_id (ordered: team_1_id < team_2_id)
+            - last_10_matches (JSONB array of recent matches)
+            - team_1_wins, team_2_wins, draws
+            Returns None if no H2H history exists.
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            h2h = await client.get_head_to_head_stats(
+                team_1_id=50,  # Man City
+                team_2_id=42   # Arsenal
+            )
+            # Returns: {
+            #   "team_1_id": 42, "team_2_id": 50,  # Auto-swapped for ordering
+            #   "team_1_wins": 5, "team_2_wins": 3, "draws": 2,
+            #   "last_10_matches": [...]
+            # }
+            ```
+        """
+        self._ensure_connected()
+
+        # Ensure correct ordering (team_1_id < team_2_id to match constraint)
+        team_a = min(team_1_id, team_2_id)
+        team_b = max(team_1_id, team_2_id)
+
+        query = """
+            SELECT
+                team_1_id, team_2_id,
+                last_10_matches,
+                team_1_wins, team_2_wins, draws
+            FROM head_to_head
+            WHERE team_1_id = $1 AND team_2_id = $2
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(query, team_a, team_b)
+
+        return self._record_to_dict(row) if row else None
+
+    async def get_teams_metadata(
+        self,
+        team_ids: list[int],
+    ) -> list[dict[str, Any]]:
+        """Retrieve team metadata for multiple teams.
+
+        Args:
+            team_ids: List of API-Football team IDs (e.g., [50, 42, 40])
+
+        Returns:
+            List of team metadata records. Each record contains:
+            team_id, team_name, team_logo, team_code, country,
+            founded, venue_name, venue_capacity.
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            metadata = await client.get_teams_metadata(team_ids=[50, 42, 40])
+            # Returns: [
+            #   {"team_id": 50, "team_name": "Manchester City", "team_logo": "...", ...},
+            #   {"team_id": 42, "team_name": "Arsenal", ...},
+            #   ...
+            # ]
+            ```
+        """
+        self._ensure_connected()
+
+        query = """
+            SELECT
+                team_id, team_name, team_logo, team_code,
+                country, founded, venue_name, venue_capacity
+            FROM teams_metadata
+            WHERE team_id = ANY($1::int[])
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, team_ids)
+
+        return [self._record_to_dict(row) for row in rows]
