@@ -55,11 +55,9 @@ async def run_tests() -> dict[str, Any]:
         password=aurora_password,
     )
 
-    cache = RedisCache(
-        host=os.getenv("REDIS_HOST", "sipap-dev-redis.qnk6bl.0001.use1.cache.amazonaws.com"),
-        port=6379,
-        db=0,
-    )
+    redis_host = os.getenv("REDIS_HOST", "sipap-dev-redis.qnk6bl.0001.use1.cache.amazonaws.com")
+    redis_port = os.getenv("REDIS_PORT", "6379")
+    cache = RedisCache(url=f"redis://{redis_host}:{redis_port}/0")
 
     try:
         await db.connect()

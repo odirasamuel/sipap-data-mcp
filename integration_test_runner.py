@@ -53,11 +53,9 @@ async def run_integration_tests() -> dict[str, Any]:
         password=aurora_password,
     )
 
-    redis_cache = RedisCache(
-        host=os.getenv("REDIS_HOST", "sipap-dev-redis.qnk6bl.0001.use1.cache.amazonaws.com"),
-        port=int(os.getenv("REDIS_PORT", "6379")),
-        db=0,
-    )
+    redis_host = os.getenv("REDIS_HOST", "sipap-dev-redis.qnk6bl.0001.use1.cache.amazonaws.com")
+    redis_port = os.getenv("REDIS_PORT", "6379")
+    redis_cache = RedisCache(url=f"redis://{redis_host}:{redis_port}/0")
 
     try:
         # Connect to Aurora and Redis
