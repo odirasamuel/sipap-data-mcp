@@ -297,7 +297,7 @@ async def run_tests() -> dict[str, Any]:
 
     finally:
         await db.close()
-        await cache.disconnect()
+        await cache.close()
 
     # Summary
     results["summary"] = f"{results['passed']}/{results['total_tests']} tests passed"

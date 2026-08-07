@@ -240,7 +240,7 @@ async def run_integration_tests() -> dict[str, Any]:
     finally:
         # Cleanup
         await aurora_client.close()
-        await redis_cache.disconnect()
+        await redis_cache.close()
 
     return results
 
