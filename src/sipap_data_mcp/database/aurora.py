@@ -824,7 +824,41 @@ class AuroraDataClient:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(query, team_id, league_id, season)
 
-        return self._record_to_dict(row) if row else None
+        if not row:
+            return None
+
+        # Convert to dict and map column names to expected format
+        stats = self._record_to_dict(row)
+
+        # Map database column names (matches_played_*) to expected format (total_*)
+        # Database schema: matches_played_home, wins_total, etc.
+        # Expected format: home_played, total_wins, etc.
+        column_mapping = {
+            # Home stats
+            "matches_played_home": "home_played",
+            # Away stats
+            "matches_played_away": "away_played",
+            # Total stats
+            "matches_played_total": "total_played",
+            "wins_total": "total_wins",
+            "draws_total": "total_draws",
+            "losses_total": "total_losses",
+            "goals_for_total": "total_goals_for",
+            "goals_against_total": "total_goals_against",
+        }
+
+        # Apply column name mapping
+        mapped_stats = {}
+        for db_col, expected_col in column_mapping.items():
+            if db_col in stats:
+                mapped_stats[expected_col] = stats[db_col]
+
+        # Keep all other columns as-is (id, team_id, league_id, season, home_*, away_*, clean_sheets_*, etc.)
+        for key, value in stats.items():
+            if key not in column_mapping:
+                mapped_stats[key] = value
+
+        return mapped_stats
 
     async def get_injuries(
         self,
