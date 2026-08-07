@@ -1,8 +1,16 @@
 """Pytest configuration and shared fixtures."""
 
+import os
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from dotenv import load_dotenv
+
+# Load .env file for integration tests
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
 
 
 @pytest.fixture

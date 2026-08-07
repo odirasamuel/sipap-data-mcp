@@ -79,7 +79,7 @@ jobs:
           echo "Package created successfully"
           ls -lh lambda_deployment/data_mcp_lambda_package.zip
 
-      - name: Upload to S3
+      - name: Upload Data MCP package to S3
         env:
           S3_BUCKET: ${{ secrets.S3_LAMBDA_BUCKET || 'sipap-lambda-packages-dev' }}
         run: |
@@ -90,14 +90,55 @@ jobs:
           ZIP_FILE="lambda_deployment/data_mcp_lambda_package.zip"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          echo "Uploading to s3://${S3_BUCKET}/${KEY}"
+          echo "Uploading Data MCP package to s3://${S3_BUCKET}/${KEY}"
 
           aws s3 cp \
             "${ZIP_FILE}" \
             "s3://${S3_BUCKET}/${KEY}" \
             --metadata "git-sha=${{ github.sha }},git-branch=${{ github.ref_name }},python-version=${{ matrix.python }},package-type=lambda-function,build-date=${BUILD_DATE}"
 
-          echo "✅ Upload successful!"
+          echo "✅ Data MCP package upload successful!"
+          echo "Bucket: ${S3_BUCKET}"
+          echo "Key: ${KEY}"
+
+      - name: Package Integration Test Lambda
+        run: |
+          echo "Packaging Integration Test Lambda for Python ${{ matrix.python }}..."
+          mkdir -p lambda_deployment/integration_test
+          rm -f lambda_deployment/integration_test.zip
+
+          # Copy integration test handler
+          cp lambda_integration_test.py lambda_deployment/integration_test/
+
+          # Copy sipap_data_mcp package (dependency)
+          cp -r src/sipap_data_mcp lambda_deployment/integration_test/
+
+          # Create zip from integration_test directory
+          (cd lambda_deployment/integration_test && zip -r ../integration_test.zip . \
+            -x "*.pyc" "*__pycache__/*" "*.git*")
+
+          echo "Integration test package created successfully"
+          ls -lh lambda_deployment/integration_test.zip
+
+      - name: Upload Integration Test package to S3
+        env:
+          S3_BUCKET: ${{ secrets.S3_LAMBDA_BUCKET || 'sipap-lambda-packages-dev' }}
+        run: |
+          set -euo pipefail
+
+          PY_FOLDER="python_${{ matrix.python }}"
+          KEY="data-mcp/${PY_FOLDER}/integration_test.zip"
+          ZIP_FILE="lambda_deployment/integration_test.zip"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          echo "Uploading Integration Test package to s3://${S3_BUCKET}/${KEY}"
+
+          aws s3 cp \
+            "${ZIP_FILE}" \
+            "s3://${S3_BUCKET}/${KEY}" \
+            --metadata "git-sha=${{ github.sha }},git-branch=${{ github.ref_name }},python-version=${{ matrix.python }},package-type=integration-test,build-date=${BUILD_DATE},test-count=11"
+
+          echo "✅ Integration Test package upload successful!"
           echo "Bucket: ${S3_BUCKET}"
           echo "Key: ${KEY}"
           echo "Git SHA: ${{ github.sha }}"
