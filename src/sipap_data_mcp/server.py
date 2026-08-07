@@ -5,7 +5,8 @@ Wraps 43 data tools with MCP protocol for AI agent communication.
 """
 
 import asyncio
-from typing import Any
+from collections.abc import Coroutine
+from typing import Any, TypeVar
 
 from sipap_mcp import MCPServer, mcp_tool  # type: ignore[import-untyped]
 
@@ -29,6 +30,9 @@ from sipap_data_mcp.tools import (
     search_matches,
     statistical,
 )
+
+# Type variable for async return values
+T = TypeVar("T")
 
 
 class SIPAPDataMCP(MCPServer):
@@ -155,7 +159,7 @@ class SIPAPDataMCP(MCPServer):
             raise RuntimeError("Server not initialized. Call _setup() first.")
         return self.db_client, self.cache
 
-    def _run_async(self, coro: Any) -> Any:
+    def _run_async(self, coro: Coroutine[Any, Any, T]) -> T:
         """Run async coroutine synchronously.
 
         Uses existing event loop if available (Lambda warm start scenario),
@@ -169,7 +173,7 @@ class SIPAPDataMCP(MCPServer):
         """
         # Check if we're already in an async context (loop is running)
         try:
-            running_loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
             # We're in an async context (like pytest-asyncio)
             # Create a new thread with its own event loop
             import concurrent.futures
@@ -498,7 +502,10 @@ class SIPAPDataMCP(MCPServer):
         return result
 
     @mcp_tool(
-        description="Get head-to-head statistics between two teams (Phase 3: uses API-Football integer IDs)",
+        description=(
+            "Get head-to-head statistics between two teams "
+            "(Phase 3: uses API-Football integer IDs)"
+        ),
         input_schema={
             "type": "object",
             "properties": {
