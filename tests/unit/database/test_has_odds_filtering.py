@@ -3,6 +3,8 @@
 Tests that matches with odds are correctly filtered using PostgreSQL JSONB ? operator.
 """
 
+import datetime
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -35,8 +37,8 @@ class TestHasOddsFiltering:
 
         # Should not contain odds filter
         assert "metadata ? 'odds'" not in query
-        # Should contain basic filters
-        assert "scheduled_at >= $1" in query
+        # Should contain basic filters (with date casting)
+        assert "scheduled_at::date >= $1" in query
         assert "status = $3" in query
         # Should have 3 parameters (date_from, date_to, status)
         assert len(params) == 3
@@ -53,8 +55,8 @@ class TestHasOddsFiltering:
 
         # Should contain odds filter using PostgreSQL JSONB ? operator
         assert "metadata ? 'odds'" in query
-        # Should contain basic filters
-        assert "scheduled_at >= $1" in query
+        # Should contain basic filters (with date casting)
+        assert "scheduled_at::date >= $1" in query
         assert "status = $3" in query
         # Should have 3 parameters (date_from, date_to, status)
         assert len(params) == 3
@@ -90,9 +92,9 @@ class TestHasOddsFiltering:
             has_odds=True,
         )
 
-        # Verify parameters
-        assert params[0] == "2026-08-01"  # $1: date_from
-        assert params[1] == "2026-08-10"  # $2: date_to
+        # Verify parameters (date strings are converted to datetime.date objects)
+        assert params[0] == datetime.date(2026, 8, 1)  # $1: date_from
+        assert params[1] == datetime.date(2026, 8, 10)  # $2: date_to
         assert params[2] == "scheduled"   # $3: status
         assert params[3] == league_id     # $4: league_id
 
