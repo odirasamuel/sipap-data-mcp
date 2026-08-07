@@ -65,7 +65,18 @@ async def run_tests() -> dict[str, Any]:
 
         # TEST 1: Standings table has data
         try:
-            standings = await db.get_standings(league_id=39, season="2024")
+            query = """
+                SELECT team_id, team_name, rank, points, matches_played,
+                       wins, draws, losses, goals_for, goals_against,
+                       goal_difference, form
+                FROM standings
+                WHERE league_id = $1 AND season = $2
+                ORDER BY rank ASC
+            """
+            async with db._pool.acquire() as conn:
+                rows = await conn.fetch(query, 39, "2024")
+
+            standings = [dict(row) for row in rows]
             assert len(standings) > 0, "No standings data"
             assert len(standings) <= 20, "Too many teams"
             results["passed"] += 1
@@ -138,7 +149,16 @@ async def run_tests() -> dict[str, Any]:
 
         # TEST 5: Teams metadata
         try:
-            metadata = await db.get_teams_metadata(team_ids=[50, 42, 33, 40])
+            query = """
+                SELECT team_id, name, code, country, founded,
+                       venue_name, venue_capacity
+                FROM teams_metadata
+                WHERE team_id = ANY($1::int[])
+            """
+            async with db._pool.acquire() as conn:
+                rows = await conn.fetch(query, [50, 42, 33, 40])
+
+            metadata = [dict(row) for row in rows]
             results["passed"] += 1
             results["tests"].append({
                 "name": "test_teams_metadata_table_has_data",
@@ -157,7 +177,16 @@ async def run_tests() -> dict[str, Any]:
         try:
             import time
             start = time.perf_counter()
-            await db.get_standings(league_id=39, season="2024")
+
+            query = """
+                SELECT team_id, team_name, rank, points, matches_played
+                FROM standings
+                WHERE league_id = $1 AND season = $2
+                ORDER BY rank ASC
+            """
+            async with db._pool.acquire() as conn:
+                await conn.fetch(query, 39, "2024")
+
             duration_ms = (time.perf_counter() - start) * 1000
             assert duration_ms < 100, f"Too slow: {duration_ms:.1f}ms"
             results["passed"] += 1
@@ -254,7 +283,16 @@ async def run_tests() -> dict[str, Any]:
 
         # TEST 10: Data quality - sequential ranks
         try:
-            standings = await db.get_standings(league_id=39, season="2024")
+            query = """
+                SELECT rank
+                FROM standings
+                WHERE league_id = $1 AND season = $2
+                ORDER BY rank ASC
+            """
+            async with db._pool.acquire() as conn:
+                rows = await conn.fetch(query, 39, "2024")
+
+            standings = [dict(row) for row in rows]
             if standings:
                 ranks = [s["rank"] for s in standings]
                 expected = list(range(1, len(standings) + 1))

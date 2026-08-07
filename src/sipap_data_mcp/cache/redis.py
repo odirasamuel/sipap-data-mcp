@@ -163,3 +163,22 @@ class RedisCache:
         result = await self._client.exists(key)
 
         return result > 0
+
+    async def ttl(self, key: str) -> int:
+        """Get time-to-live for a key.
+
+        Args:
+            key: Cache key
+
+        Returns:
+            TTL in seconds, -1 if key exists with no expiry, -2 if key doesn't exist
+
+        Raises:
+            RuntimeError: If client is not connected
+        """
+        self._ensure_connected()
+
+        assert self._client is not None  # Type narrowing for mypy
+        result = await self._client.ttl(key)
+
+        return result
