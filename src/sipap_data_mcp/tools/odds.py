@@ -4,68 +4,76 @@ Provides tools for:
 - Retrieving current betting odds from multiple bookmakers
 - Tracking odds movements over time
 - Identifying sharp money and steam moves
+
+UPDATED for Phase 3: Now uses integer fixture IDs from API-Football.
 """
 
 from typing import Any
-from uuid import UUID
 
 from sipap_data_mcp.database.aurora import AuroraDataClient
 
 
 async def get_match_odds(
     db_client: AuroraDataClient,
-    match_id: str,
-) -> dict[str, Any] | None:
+    fixture_id: int,
+    is_live: bool = False,
+) -> dict[str, Any]:
     """Get betting odds for a match from multiple bookmakers.
+
+    UPDATED for Phase 3: Now accepts integer fixture ID from API-Football
+    and queries dedicated odds table (not JSONB).
 
     Args:
         db_client: Database client instance
-        match_id: Match UUID
+        fixture_id: API-Football fixture ID
+        is_live: Whether to fetch live odds (default: False for pre-match)
 
     Returns:
         Dictionary with odds data including:
-        - bookmakers: List of bookmaker odds
-        - best_odds: Best available odds for each outcome
-        - average_odds: Average odds across all bookmakers
-        Returns None if no odds data available
-
-    Raises:
-        ValueError: If match_id is not a valid UUID
+        - odds: List of odds records from different bookmakers
+        - fixture_id: The fixture ID
+        - count: Number of bookmaker odds available
 
     Example:
         ```python
         result = await get_match_odds(
             db_client=client,
-            match_id="550e8400-e29b-41d4-a716-446655440000"
+            fixture_id=1234567
         )
         # Returns:
         # {
-        #   "bookmakers": [{"bookmaker": "Bet365", "home_odds": 2.10, ...}],
-        #   "best_odds": {"home": {"odds": 2.15, "bookmaker": "William Hill"}},
-        #   "average_odds": {"home": 2.125, "draw": 3.35, "away": 3.55}
+        #   "fixture_id": 1234567,
+        #   "count": 15,
+        #   "odds": [
+        #     {"bookmaker_name": "Bet365", "market": "1X2", "home_odds": 1.85, ...},
+        #     ...
+        #   ]
         # }
         ```
     """
-    # Validate match UUID
-    try:
-        UUID(match_id)
-    except ValueError as e:
-        raise ValueError(f"Invalid UUID for match_id: {match_id}") from e
+    # Query odds from dedicated odds table
+    odds_list = await db_client.get_match_odds(fixture_id, is_live)
 
-    # Query match odds from database
-    return await db_client.get_match_odds(match_id)
+    return {
+        "fixture_id": fixture_id,
+        "count": len(odds_list),
+        "odds": odds_list,
+    }
 
 
 async def get_odds_movements(
     db_client: AuroraDataClient,
-    match_id: str,
+    fixture_id: int,
     time_window: str = "24h",
 ) -> dict[str, Any] | None:
     """Track odds movements over time for a match.
 
+    NOTE: This function will be updated in a future phase to query the odds table
+    with created_at timestamps instead of using the old JSONB schema.
+
     Args:
         db_client: Database client instance
-        match_id: Match UUID
+        fixture_id: API-Football fixture ID
         time_window: Time window for tracking movements (default: "24h")
                     Valid values: "1h", "6h", "12h", "24h", "48h", "7d"
 
@@ -78,13 +86,13 @@ async def get_odds_movements(
         Returns None if no movements data available
 
     Raises:
-        ValueError: If match_id is not a valid UUID or time_window is invalid
+        ValueError: If time_window is invalid
 
     Example:
         ```python
         result = await get_odds_movements(
             db_client=client,
-            match_id="550e8400-e29b-41d4-a716-446655440000",
+            fixture_id=1234567,
             time_window="24h"
         )
         # Returns:
@@ -96,12 +104,6 @@ async def get_odds_movements(
         # }
         ```
     """
-    # Validate match UUID
-    try:
-        UUID(match_id)
-    except ValueError as e:
-        raise ValueError(f"Invalid UUID for match_id: {match_id}") from e
-
     # Validate time_window
     valid_windows = ["1h", "6h", "12h", "24h", "48h", "7d"]
     if time_window not in valid_windows:
@@ -110,5 +112,8 @@ async def get_odds_movements(
             f"Must be one of {', '.join(valid_windows)}"
         )
 
-    # Query odds movements from database
+    # NOTE: get_odds_movements() still uses old match_id (str) parameter
+    # This will be updated in a future phase to work with Phase 3 schema
+    # For now, convert fixture_id to string to maintain compatibility
+    match_id = str(fixture_id)
     return await db_client.get_odds_movements(match_id, time_window)
