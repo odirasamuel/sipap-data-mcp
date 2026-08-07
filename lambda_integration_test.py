@@ -344,8 +344,132 @@ async def run_tests() -> dict[str, Any]:
     return results
 
 
+async def insert_test_data() -> dict[str, Any]:
+    """Insert minimal test data for integration testing (0 API requests)."""
+    import boto3
+
+    # Get Aurora credentials from Secrets Manager
+    secret_arn = os.getenv("AURORA_SECRET_ARN")
+    if not secret_arn:
+        return {"error": "AURORA_SECRET_ARN environment variable not set"}
+
+    try:
+        secrets_client = boto3.client("secretsmanager")
+        secret_response = secrets_client.get_secret_value(SecretId=secret_arn)
+        secret_data = json.loads(secret_response["SecretString"])
+        aurora_password = secret_data["password"]
+        aurora_host = secret_data.get("host", os.getenv("AURORA_HOST"))
+    except Exception as e:
+        return {"error": "Failed to retrieve Aurora credentials", "message": str(e)}
+
+    # Import here to avoid issues if dependencies aren't available
+    from sipap_data_mcp.database.aurora import AuroraDataClient
+
+    db = AuroraDataClient(
+        host=aurora_host,
+        port=5432,
+        database="sipap_dev",
+        user="sipap_admin",
+        password=aurora_password,
+    )
+
+    try:
+        await db.connect()
+
+        # Insert 5 Premier League standings records
+        standings_sql = """
+            INSERT INTO standings (
+                league_id, season, team_id, team_name, rank, points,
+                matches_played, wins, draws, losses,
+                goals_for, goals_against, goal_difference, form
+            ) VALUES
+                (39, '2024', 50, 'Manchester City', 1, 91, 38, 28, 7, 3, 96, 34, 62, 'WWWDW'),
+                (39, '2024', 42, 'Arsenal', 2, 89, 38, 28, 5, 5, 91, 29, 62, 'WWWWL'),
+                (39, '2024', 40, 'Liverpool', 3, 82, 38, 24, 10, 4, 86, 41, 45, 'DWWWD'),
+                (39, '2024', 33, 'Chelsea', 4, 70, 38, 21, 9, 8, 77, 63, 14, 'WDWWL'),
+                (39, '2024', 49, 'Tottenham', 5, 66, 38, 20, 6, 12, 74, 61, 13, 'LWWDL')
+            ON CONFLICT (league_id, season, team_id) DO UPDATE SET
+                rank = EXCLUDED.rank,
+                points = EXCLUDED.points,
+                matches_played = EXCLUDED.matches_played,
+                wins = EXCLUDED.wins,
+                draws = EXCLUDED.draws,
+                losses = EXCLUDED.losses,
+                goals_for = EXCLUDED.goals_for,
+                goals_against = EXCLUDED.goals_against,
+                goal_difference = EXCLUDED.goal_difference,
+                form = EXCLUDED.form,
+                updated_at = CURRENT_TIMESTAMP;
+        """
+
+        async with db._pool.acquire() as conn:
+            await conn.execute(standings_sql)
+
+        # Insert 5 team statistics records
+        team_stats_sql = """
+            INSERT INTO team_statistics (
+                team_id, league_id, season, form,
+                home_played, home_wins, home_draws, home_losses, home_goals_for, home_goals_against,
+                away_played, away_wins, away_draws, away_losses, away_goals_for, away_goals_against,
+                total_played, total_wins, total_draws, total_losses, total_goals_for, total_goals_against,
+                clean_sheets_home, clean_sheets_away, clean_sheets_total
+            ) VALUES
+                (50, 39, '2024', 'WWWDW', 19, 17, 2, 0, 53, 15, 19, 11, 5, 3, 43, 19, 38, 28, 7, 3, 96, 34, 12, 8, 20),
+                (42, 39, '2024', 'WWWWL', 19, 16, 2, 1, 51, 13, 19, 12, 3, 4, 40, 16, 38, 28, 5, 5, 91, 29, 13, 9, 22),
+                (40, 39, '2024', 'DWWWD', 19, 14, 4, 1, 49, 17, 19, 10, 6, 3, 37, 24, 38, 24, 10, 4, 86, 41, 11, 7, 18),
+                (33, 39, '2024', 'WDWWL', 19, 12, 5, 2, 45, 28, 19, 9, 4, 6, 32, 35, 38, 21, 9, 8, 77, 63, 8, 5, 13),
+                (49, 39, '2024', 'LWWDL', 19, 12, 3, 4, 42, 27, 19, 8, 3, 8, 32, 34, 38, 20, 6, 12, 74, 61, 7, 4, 11)
+            ON CONFLICT (team_id, league_id, season) DO UPDATE SET
+                form = EXCLUDED.form,
+                total_played = EXCLUDED.total_played,
+                total_wins = EXCLUDED.total_wins,
+                total_draws = EXCLUDED.total_draws,
+                total_losses = EXCLUDED.total_losses,
+                total_goals_for = EXCLUDED.total_goals_for,
+                total_goals_against = EXCLUDED.total_goals_against,
+                updated_at = CURRENT_TIMESTAMP;
+        """
+
+        async with db._pool.acquire() as conn:
+            await conn.execute(team_stats_sql)
+
+        # Verify counts
+        async with db._pool.acquire() as conn:
+            standings_count = await conn.fetchval("SELECT COUNT(*) FROM standings WHERE league_id = 39 AND season = '2024'")
+            team_stats_count = await conn.fetchval("SELECT COUNT(*) FROM team_statistics WHERE league_id = 39 AND season = '2024'")
+
+        return {
+            "status": "success",
+            "message": "Test data inserted successfully",
+            "standings_inserted": standings_count,
+            "team_stats_inserted": team_stats_count,
+            "api_requests_used": 0
+        }
+
+    finally:
+        await db.close()
+
+
 def lambda_handler(event, context):
     """AWS Lambda handler."""
+    # Check if this is a request to insert test data
+    if isinstance(event, dict) and event.get("action") == "insert_test_data":
+        try:
+            result = asyncio.run(insert_test_data())
+            return {
+                "statusCode": 200,
+                "body": json.dumps(result, indent=2)
+            }
+        except Exception as e:
+            return {
+                "statusCode": 500,
+                "body": json.dumps({
+                    "error": "Test data insertion failed",
+                    "message": str(e)
+                })
+            }
+
+    # Otherwise run integration tests
     try:
         results = asyncio.run(run_tests())
         return {
