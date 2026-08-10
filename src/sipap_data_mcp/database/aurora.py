@@ -6,6 +6,7 @@ Implements connection pooling, query timeout handling, and proper resource clean
 
 import logging
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -192,6 +193,7 @@ class AuroraDataClient:
         Handles type conversions:
         - UUID objects → strings
         - datetime objects → ISO strings
+        - Decimal objects → floats
         - All other types → as-is
 
         Args:
@@ -206,6 +208,8 @@ class AuroraDataClient:
                 result[key] = str(value)
             elif isinstance(value, datetime):
                 result[key] = value.isoformat()
+            elif isinstance(value, Decimal):
+                result[key] = float(value)
             else:
                 result[key] = value
         return result
