@@ -84,7 +84,7 @@ class AuroraDataClient:
             database=self._database,
             user=self._user,
             password=self._password,
-            ssl='require',  # Aurora requires SSL connections
+            ssl='prefer',  # Prefer SSL but don't hang if cert validation fails (Lambda → RDS within VPC)
             min_size=2,
             max_size=10,
             command_timeout=5.0,
