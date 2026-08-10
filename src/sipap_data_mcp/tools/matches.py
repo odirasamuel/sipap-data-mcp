@@ -192,6 +192,12 @@ LEAGUE_NAME_MAPPINGS = {
     "french league": "ligue-1",
     "france": "ligue-1",
 
+    # Swedish leagues
+    "allsvenskan": "allsvenskan",
+    "superettan": "superettan",
+    "sweden": "allsvenskan",
+    "swedish league": "allsvenskan",
+
     # Other leagues
     "eredivisie": "eredivisie",
     "netherlands": "eredivisie",
