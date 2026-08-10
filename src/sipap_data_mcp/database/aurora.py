@@ -115,7 +115,8 @@ class AuroraDataClient:
             date_from: Start date in ISO 8601 format (YYYY-MM-DD)
             date_to: End date in ISO 8601 format (YYYY-MM-DD)
             status: Match status filter (scheduled, live, finished)
-            league_id: Optional league UUID filter
+            league_id: Optional league name filter (e.g., "allsvenskan", "premier-league")
+                      Note: Named league_id for backward compatibility, but accepts names
             has_odds: Only include matches with odds available (default: False)
 
         Returns:
@@ -263,7 +264,7 @@ class AuroraDataClient:
             date_from: Start date in ISO 8601 format
             date_to: End date in ISO 8601 format
             status: Match status filter
-            league_id: Optional league UUID filter
+            league_id: Optional league name filter (e.g., "allsvenskan", "premier-league")
             has_odds: Only include matches with odds available (checks metadata->'odds')
 
         Returns:
@@ -301,8 +302,10 @@ class AuroraDataClient:
         ]
 
         # Add league filter if specified
+        # Note: league_id parameter now accepts league names (e.g., "allsvenskan")
+        # because batch-scraper stores denormalized league names in m.league column
         if league_id is not None:
-            where_conditions.append(f"m.league_id = ${len(base_params) + 1}")
+            where_conditions.append(f"m.league = ${len(base_params) + 1}")
             base_params.append(league_id)
 
         # Add odds filter if requested (uses PostgreSQL JSONB ? operator)
