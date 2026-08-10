@@ -5,6 +5,7 @@ Provides tools for retrieving match schedules, details, live matches, and search
 
 import logging
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -12,6 +13,25 @@ from sipap_data_mcp.database.aurora import AuroraDataClient
 
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
+
+
+def _convert_decimals_to_float(data: Any) -> Any:
+    """Recursively convert Decimal objects to float for JSON serialization.
+
+    Args:
+        data: Any data structure (dict, list, Decimal, etc.)
+
+    Returns:
+        Same structure with Decimal values converted to float
+    """
+    if isinstance(data, Decimal):
+        return float(data)
+    elif isinstance(data, dict):
+        return {key: _convert_decimals_to_float(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [_convert_decimals_to_float(item) for item in data]
+    else:
+        return data
 
 
 async def get_match_schedule(
@@ -372,8 +392,8 @@ async def search_fixtures(
         f"Results: {len(all_fixtures)} total, returning {len(limited_fixtures)} after limit"
     )
 
-    # Return results with metadata
-    return {
+    # Return results with metadata (convert Decimal to float for JSON serialization)
+    return _convert_decimals_to_float({
         "fixtures": limited_fixtures,
         "count": len(limited_fixtures),
         "filters_applied": {
@@ -385,4 +405,4 @@ async def search_fixtures(
             "has_odds": has_odds,
             "limit": limit,
         }
-    }
+    })
