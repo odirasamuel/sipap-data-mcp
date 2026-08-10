@@ -269,21 +269,29 @@ class AuroraDataClient:
             date_to: End date in ISO 8601 format
             status: Match status filter
             league_id: Optional league name filter (e.g., "allsvenskan", "premier-league")
-            has_odds: Only include matches with odds available (checks metadata->'odds')
+            has_odds: Only include matches with odds available (checks odds table)
 
         Returns:
             Tuple of (query string, parameters tuple)
         """
-        # Base SELECT clause using denormalized columns (no JOINs needed)
-        # Note: batch-scraper stores team/league names directly in text columns
+        # Base SELECT clause with odds aggregation
+        # Join with odds table to get best odds across all bookmakers
         select_clause = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
                 m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
                 m.league, m.league_id,
-                m.home_score, m.away_score, m.metadata
+                m.home_score, m.away_score, m.metadata,
+                -- Aggregate odds data
+                MAX(o.home_odds) as best_home_odds,
+                MAX(o.draw_odds) as best_draw_odds,
+                MAX(o.away_odds) as best_away_odds,
+                COUNT(DISTINCT o.bookmaker_id) as bookmakers_count
             FROM matches m
+            LEFT JOIN odds o ON m.external_id = CAST(o.fixture_id AS TEXT)
+                AND o.market = '1X2'
+                AND o.is_live = false
         """
 
         # Build WHERE clause and parameters
@@ -297,12 +305,11 @@ class AuroraDataClient:
         where_conditions = [
             "m.scheduled_at::date >= $1",
             "m.scheduled_at::date <= $2",
-            "m.status = $3",
+            "m.status IN ('NS', 'scheduled')",  # Support both API-Football 'NS' and legacy 'scheduled'
         ]
         base_params: list[Any] = [
             self._parse_date(date_from),  # Convert to datetime.date
             self._parse_date(date_to),  # Convert to datetime.date
-            status
         ]
 
         # Add league filter if specified
@@ -313,12 +320,24 @@ class AuroraDataClient:
             where_conditions.append(f"m.league ILIKE ${len(base_params) + 1}")
             base_params.append(league_id)
 
-        # Add odds filter if requested (uses PostgreSQL JSONB ? operator)
+        # Add GROUP BY and HAVING for odds filtering
+        group_clause = """
+            GROUP BY m.id, m.external_id, m.scheduled_at, m.status,
+                     m.home_team, m.away_team, m.home_team_id, m.away_team_id,
+                     m.league, m.league_id, m.home_score, m.away_score, m.metadata
+        """
+
+        having_clause = ""
         if has_odds:
-            where_conditions.append("m.metadata ? 'odds'")
+            # Only include matches that have at least 1 bookmaker with odds
+            having_clause = """
+                HAVING COUNT(DISTINCT o.bookmaker_id) > 0
+            """
 
         where_clause = f"""
             WHERE {' AND '.join(where_conditions)}
+            {group_clause}
+            {having_clause}
             ORDER BY m.scheduled_at ASC
         """
         params = tuple(base_params)
