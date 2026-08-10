@@ -304,8 +304,9 @@ class AuroraDataClient:
         # Add league filter if specified
         # Note: league_id parameter now accepts league names (e.g., "allsvenskan")
         # because batch-scraper stores denormalized league names in m.league column
+        # Use ILIKE for case-insensitive matching (allsvenskan matches Allsvenskan)
         if league_id is not None:
-            where_conditions.append(f"m.league = ${len(base_params) + 1}")
+            where_conditions.append(f"m.league ILIKE ${len(base_params) + 1}")
             base_params.append(league_id)
 
         # Add odds filter if requested (uses PostgreSQL JSONB ? operator)
