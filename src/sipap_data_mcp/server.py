@@ -5,10 +5,14 @@ Wraps 43 data tools with MCP protocol for AI agent communication.
 """
 
 import asyncio
+import logging
 from collections.abc import Coroutine
 from typing import Any, TypeVar
 
 from sipap_mcp import MCPServer, mcp_tool  # type: ignore[import-untyped]
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 from sipap_data_mcp.cache.redis import RedisCache
 from sipap_data_mcp.database.aurora import AuroraDataClient
@@ -116,6 +120,11 @@ class SIPAPDataMCP(MCPServer):
         Called automatically when server starts.
         Establishes connections to Aurora and Redis.
         """
+        logger.info(
+            f"Setting up Data MCP connections - DB: {self._db_host}:{self._db_port}/{self._db_name}, "
+            f"Redis: {self._redis_url}"
+        )
+
         # Create database client
         self.db_client = AuroraDataClient(
             host=self._db_host,
@@ -130,7 +139,12 @@ class SIPAPDataMCP(MCPServer):
 
         # Connect to both
         await self.db_client.connect()
+        logger.info("Database connection established")
+
         await self.cache.connect()
+        logger.info("Redis cache connection established")
+
+        logger.info("Data MCP setup complete")
 
     async def _cleanup(self) -> None:
         """Close database and cache connections.
@@ -138,13 +152,19 @@ class SIPAPDataMCP(MCPServer):
         Called automatically when server shuts down.
         Ensures proper resource cleanup.
         """
+        logger.info("Cleaning up Data MCP connections")
+
         if self.db_client is not None:
             await self.db_client.close()
             self.db_client = None
+            logger.info("Database connection closed")
 
         if self.cache is not None:
             await self.cache.close()
             self.cache = None
+            logger.info("Redis cache connection closed")
+
+        logger.info("Data MCP cleanup complete")
 
     def _ensure_connections(self) -> tuple[AuroraDataClient, RedisCache]:
         """Ensure connections are established.

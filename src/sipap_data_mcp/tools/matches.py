@@ -3,11 +3,15 @@
 Provides tools for retrieving match schedules, details, live matches, and search.
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from sipap_data_mcp.database.aurora import AuroraDataClient
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
 async def get_match_schedule(
@@ -297,11 +301,25 @@ async def search_fixtures(
         )
         ```
     """
+    logger.info(
+        "search_fixtures called",
+        extra={
+            "league_names": league_names,
+            "date_from": date_from,
+            "date_to": date_to,
+            "status": status,
+            "has_odds": has_odds,
+            "limit": limit,
+        }
+    )
+
     # Apply date defaults
     if date_from is None:
         date_from = datetime.now(UTC).date().isoformat()
     if date_to is None:
         date_to = (datetime.now(UTC).date() + timedelta(days=7)).isoformat()
+
+    logger.info(f"Date range after defaults: {date_from} to {date_to}")
 
     # Map league names to IDs
     league_ids: list[str] | None = None
@@ -309,9 +327,13 @@ async def search_fixtures(
         league_ids = []
         for name in league_names:
             league_id = map_league_name_to_id(name)
+            logger.debug(f"League name mapping: '{name}' → '{league_id}'")
             if league_id:
                 league_ids.append(league_id)
-            # Silently skip unknown leagues (don't fail the whole query)
+            else:
+                logger.warning(f"Unknown league name: '{name}' (skipping)")
+
+        logger.info(f"Mapped league IDs: {league_ids}")
 
     # Query database for each league (if specified) or all leagues
     # The has_odds filtering is now done at the database level via SQL WHERE clause
@@ -319,7 +341,9 @@ async def search_fixtures(
 
     if league_ids:
         # Query each league separately
+        logger.info(f"Querying {len(league_ids)} leagues individually")
         for league_id in league_ids:
+            logger.debug(f"Querying league: {league_id}")
             fixtures = await db_client.get_matches(
                 date_from=date_from,
                 date_to=date_to,
@@ -327,9 +351,11 @@ async def search_fixtures(
                 league_id=league_id,
                 has_odds=has_odds,  # Database-level filtering
             )
+            logger.info(f"League '{league_id}': found {len(fixtures)} fixtures")
             all_fixtures.extend(fixtures)
     else:
         # Query all leagues
+        logger.info("Querying all leagues (no league filter applied)")
         fixtures = await db_client.get_matches(
             date_from=date_from,
             date_to=date_to,
@@ -337,10 +363,14 @@ async def search_fixtures(
             league_id=None,
             has_odds=has_odds,  # Database-level filtering
         )
+        logger.info(f"Found {len(fixtures)} fixtures across all leagues")
         all_fixtures = fixtures
 
     # Apply limit
     limited_fixtures = all_fixtures[:limit]
+    logger.info(
+        f"Results: {len(all_fixtures)} total, returning {len(limited_fixtures)} after limit"
+    )
 
     # Return results with metadata
     return {

@@ -5,11 +5,26 @@ Provides Lambda entry point for JSON-RPC 2.0 MCP requests.
 
 import asyncio
 import json
+import logging
 import os
 import boto3
 from typing import Any
 
 from sipap_data_mcp.server import SIPAPDataMCP
+
+# Configure structured logging for CloudWatch
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Set log level from environment variable (default: INFO)
+log_level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+logging.getLogger().setLevel(getattr(logging, log_level, logging.INFO))
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 # Global event loop for Lambda container reuse
 # This event loop persists across Lambda invocations (warm starts)
@@ -33,7 +48,7 @@ def get_event_loop() -> asyncio.AbstractEventLoop:
     if _event_loop is None or _event_loop.is_closed():
         _event_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(_event_loop)
-        print("Created new event loop for Lambda container")
+        logger.info("Created new event loop for Lambda container")
 
     return _event_loop
 
@@ -59,7 +74,7 @@ def get_db_credentials() -> tuple[str, str]:
         return (credentials.get("username", "sipap_readonly"),
                 credentials.get("password", ""))
     except Exception as e:
-        print(f"Warning: Failed to fetch credentials from Secrets Manager: {e}")
+        logger.warning(f"Failed to fetch credentials from Secrets Manager: {e}", exc_info=True)
         return (os.environ.get("POSTGRES_USER", "sipap_readonly"),
                 os.environ.get("POSTGRES_PASSWORD", ""))
 
@@ -77,7 +92,7 @@ def get_server() -> SIPAPDataMCP:
 
     if _server is None:
         # COLD START: Create new server and establish connections
-        print("Cold start: Creating new MCP server")
+        logger.info("Cold start: Creating new MCP server")
 
         # Get configuration from environment variables (AWS Lambda environment)
         db_host = os.environ.get("POSTGRES_HOST", "localhost")
@@ -92,6 +107,9 @@ def get_server() -> SIPAPDataMCP:
         redis_ssl = os.environ.get("REDIS_SSL", "false").lower() == "true"
         redis_protocol = "rediss" if redis_ssl else "redis"
         redis_url = f"{redis_protocol}://{redis_endpoint}/0"
+
+        logger.info(f"Connecting to database: {db_host}:{db_port}/{db_name} (user: {db_user})")
+        logger.info(f"Connecting to Redis: {redis_url}")
 
         # Create server
         _server = SIPAPDataMCP(
@@ -108,17 +126,17 @@ def get_server() -> SIPAPDataMCP:
 
         # Setup connections using persistent loop
         loop.run_until_complete(_server._setup())
-        print("MCP server initialized with persistent connections")
+        logger.info("MCP server initialized with persistent connections")
     else:
         # WARM START: Verify connections are still alive
-        print("Warm start: Reusing existing MCP server")
+        logger.info("Warm start: Reusing existing MCP server")
 
         # Check if database pool is still connected
         if _server.db_client is None or _server.db_client._pool is None:
-            print("Warning: Database connection lost, reconnecting...")
+            logger.warning("Database connection lost, reconnecting...")
             loop = get_event_loop()
             loop.run_until_complete(_server._setup())
-            print("Database connection re-established")
+            logger.info("Database connection re-established")
 
     return _server
 
@@ -135,6 +153,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     Returns:
         API Gateway response or direct JSON-RPC response
     """
+    logger.info(f"Lambda invocation started (request_id: {context.request_id})")
+
     # Get server instance
     server = get_server()
 
@@ -149,8 +169,41 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # Direct invocation
         request_data = event
 
+    # Log the JSON-RPC request
+    logger.info(
+        f"Received JSON-RPC request",
+        extra={
+            "method": request_data.get("method"),
+            "id": request_data.get("id"),
+            "params": request_data.get("params", {}).get("name")  # Tool name
+        }
+    )
+    logger.debug(f"Full request: {json.dumps(request_data, indent=2)}")
+
     # Handle request via MCP server
-    response = server.handle_request(request_data)
+    try:
+        response = server.handle_request(request_data)
+
+        # Log response summary
+        if "result" in response:
+            result = response["result"]
+            if isinstance(result, dict) and "content" in result:
+                content = result["content"]
+                if isinstance(content, list) and len(content) > 0:
+                    first_content = content[0]
+                    if isinstance(first_content, dict) and "text" in first_content:
+                        try:
+                            data = json.loads(first_content["text"])
+                            if isinstance(data, dict):
+                                logger.info(f"Response: {data.get('count', 0)} results returned")
+                        except:
+                            pass
+
+        logger.debug(f"Full response: {json.dumps(response, indent=2)}")
+
+    except Exception as e:
+        logger.error(f"Error handling request: {e}", exc_info=True)
+        raise
 
     # Return response
     if "body" in event:

@@ -4,11 +4,15 @@ This module provides async database access to SIPAP's normalized sports data sch
 Implements connection pooling, query timeout handling, and proper resource cleanup.
 """
 
+import logging
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
 import asyncpg
+
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
 
 class AuroraDataClient:
@@ -319,7 +323,12 @@ class AuroraDataClient:
         """
         params = tuple(base_params)
 
-        return (select_clause + where_clause, params)
+        # Log the built query for debugging
+        full_query = select_clause + where_clause
+        logger.debug(f"Built SQL query: {full_query}")
+        logger.debug(f"Query parameters: {params}")
+
+        return (full_query, params)
 
     async def get_match(self, match_id: str) -> dict[str, Any] | None:
         """Retrieve a single match by ID.
