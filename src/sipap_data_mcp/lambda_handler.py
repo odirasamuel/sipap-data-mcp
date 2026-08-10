@@ -153,7 +153,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     Returns:
         API Gateway response or direct JSON-RPC response
     """
-    logger.info(f"Lambda invocation started (request_id: {context.request_id})")
+    logger.info(f"Lambda invocation started (request_id: {context.aws_request_id})")
 
     # Get server instance
     server = get_server()
