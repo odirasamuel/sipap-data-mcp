@@ -269,18 +269,16 @@ class AuroraDataClient:
         Returns:
             Tuple of (query string, parameters tuple)
         """
-        # Base SELECT clause with JOINs to get team and league names
+        # Base SELECT clause using denormalized columns (no JOINs needed)
+        # Note: batch-scraper stores team/league names directly in text columns
         select_clause = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
-                ht.name AS home_team, at.name AS away_team,
+                m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id,
+                m.league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
-            LEFT JOIN teams ht ON m.home_team_id = ht.id
-            LEFT JOIN teams at ON m.away_team_id = at.id
-            LEFT JOIN leagues l ON m.league_id = l.id
         """
 
         # Build WHERE clause and parameters
@@ -343,14 +341,11 @@ class AuroraDataClient:
         query = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
-                ht.name AS home_team, at.name AS away_team,
+                m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id,
+                m.league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
-            LEFT JOIN teams ht ON m.home_team_id = ht.id
-            LEFT JOIN teams at ON m.away_team_id = at.id
-            LEFT JOIN leagues l ON m.league_id = l.id
             WHERE m.id = $1
         """
 
@@ -382,20 +377,17 @@ class AuroraDataClient:
         """
         self._ensure_connected()
 
-        # Search by team name (home or away)
+        # Search by team name (home or away) using denormalized columns
         search_query = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
-                ht.name AS home_team, at.name AS away_team,
+                m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id,
+                m.league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
-            LEFT JOIN teams ht ON m.home_team_id = ht.id
-            LEFT JOIN teams at ON m.away_team_id = at.id
-            LEFT JOIN leagues l ON m.league_id = l.id
-            WHERE ht.name ILIKE $1
-               OR at.name ILIKE $1
+            WHERE m.home_team ILIKE $1
+               OR m.away_team ILIKE $1
             ORDER BY m.scheduled_at DESC
             LIMIT 100
         """
@@ -564,18 +556,16 @@ class AuroraDataClient:
         self._ensure_connected()
 
         # Build query dynamically based on filters
+        # Note: This method expects team_id but data is denormalized - will return empty until foreign keys populated
         query_parts = [
             """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
-                ht.name AS home_team, at.name AS away_team,
+                m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
-                l.name AS league, m.league_id,
+                m.league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
-            LEFT JOIN teams ht ON m.home_team_id = ht.id
-            LEFT JOIN teams at ON m.away_team_id = at.id
-            LEFT JOIN leagues l ON m.league_id = l.id
             WHERE m.status = 'finished'
               AND (m.home_team_id = $1 OR m.away_team_id = $1)
             """
