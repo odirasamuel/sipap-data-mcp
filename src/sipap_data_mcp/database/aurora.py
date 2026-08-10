@@ -84,7 +84,7 @@ class AuroraDataClient:
             database=self._database,
             user=self._user,
             password=self._password,
-            ssl=True,  # Use SSL without strict certificate validation (Lambda → RDS within VPC)
+            # ssl=False - Disabled SSL for Lambda → RDS within VPC (already encrypted at network level)
             min_size=2,
             max_size=10,
             command_timeout=5.0,
