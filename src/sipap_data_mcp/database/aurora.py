@@ -379,9 +379,13 @@ class AuroraDataClient:
                 m.id, m.external_id, m.scheduled_at, m.status,
                 m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
+                ht.external_id AS home_team_external_id,
+                at.external_id AS away_team_external_id,
                 m.league, m.league_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
+            LEFT JOIN teams ht ON m.home_team_id = ht.id
+            LEFT JOIN teams at ON m.away_team_id = at.id
             WHERE m.id = $1
         """
 
