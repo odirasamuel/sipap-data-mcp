@@ -68,6 +68,7 @@ def get_server() -> SIPAPDataMCP:
     """Get or create MCP server instance.
 
     Reuses server instance across Lambda invocations for connection pooling.
+    Ensures database connections are established and maintained.
 
     Returns:
         Initialized SIPAPDataMCP server
@@ -75,6 +76,9 @@ def get_server() -> SIPAPDataMCP:
     global _server
 
     if _server is None:
+        # COLD START: Create new server and establish connections
+        print("Cold start: Creating new MCP server")
+
         # Get configuration from environment variables (AWS Lambda environment)
         db_host = os.environ.get("POSTGRES_HOST", "localhost")
         db_port = int(os.environ.get("POSTGRES_PORT", "5432"))
@@ -104,7 +108,17 @@ def get_server() -> SIPAPDataMCP:
 
         # Setup connections using persistent loop
         loop.run_until_complete(_server._setup())
-        print("MCP server initialized with persistent event loop")
+        print("MCP server initialized with persistent connections")
+    else:
+        # WARM START: Verify connections are still alive
+        print("Warm start: Reusing existing MCP server")
+
+        # Check if database pool is still connected
+        if _server.db_client is None or _server.db_client._pool is None:
+            print("Warning: Database connection lost, reconnecting...")
+            loop = get_event_loop()
+            loop.run_until_complete(_server._setup())
+            print("Database connection re-established")
 
     return _server
 

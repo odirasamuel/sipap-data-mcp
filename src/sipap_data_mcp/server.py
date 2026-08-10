@@ -160,40 +160,48 @@ class SIPAPDataMCP(MCPServer):
         return self.db_client, self.cache
 
     def _run_async(self, coro: Coroutine[Any, Any, T]) -> T:
-        """Run async coroutine synchronously.
+        """Run async coroutine synchronously using persistent event loop.
 
-        Uses existing event loop if available (Lambda warm start scenario),
-        otherwise creates a new loop for standalone usage.
+        CRITICAL: Always uses the persistent event loop from Lambda handler
+        to maintain connection pool across invocations. This follows Sentinel's
+        Lambda warm start optimization pattern.
 
         Args:
             coro: Coroutine to run
 
         Returns:
             Result of coroutine
+
+        Raises:
+            RuntimeError: If no event loop is available
         """
-        # Check if we're already in an async context (loop is running)
+        # Get the event loop (should be the persistent one set by lambda_handler)
         try:
-            asyncio.get_running_loop()
-            # We're in an async context (like pytest-asyncio)
-            # Create a new thread with its own event loop
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, coro)
-                return future.result()
-        except RuntimeError:
-            # No running loop, check if there's a set event loop (Lambda scenario)
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError(
+                    "Event loop is closed. This should not happen in Lambda environment."
+                )
+
+            # Check if loop is currently running (nested call scenario)
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_closed():
-                    # Loop is closed, create new one
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    return loop.run_until_complete(coro)
-                # Use existing loop (Lambda warm start)
-                return loop.run_until_complete(coro)
+                asyncio.get_running_loop()
+                # We're inside a running loop (e.g., pytest-asyncio, or nested async call)
+                # Create a new thread with its own event loop for this specific case
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, coro)
+                    return future.result()
             except RuntimeError:
-                # No event loop at all, use asyncio.run (creates new loop each time)
-                return asyncio.run(coro)
+                # No running loop - this is the normal Lambda handler path
+                # Use the persistent loop to maintain connection pool
+                return loop.run_until_complete(coro)
+
+        except RuntimeError as e:
+            # No event loop set at all (shouldn't happen in Lambda)
+            raise RuntimeError(
+                f"No event loop available. This should not happen in Lambda handler. Error: {e}"
+            ) from e
 
     # ========================================================================
     # Match Tools (4)
