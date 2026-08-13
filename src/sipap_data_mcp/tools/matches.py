@@ -188,75 +188,60 @@ async def search_matches(
 
 
 # League name mapping for user-friendly queries
-LEAGUE_NAME_MAPPINGS = {
-    # Premier League variations
-    "premier league": "premier-league",
-    "epl": "premier-league",
-    "english premier league": "premier-league",
-    "england": "premier-league",
-
-    # LaLiga variations
-    "laliga": "laliga",
-    "la liga": "laliga",
-    "spanish league": "laliga",
-    "spain": "laliga",
-
-    # Serie A variations
-    "serie a": "serie-a",
-    "italian league": "serie-a",
-    "italy": "serie-a",
-
-    # Bundesliga variations
-    "bundesliga": "bundesliga",
-    "german league": "bundesliga",
-    "germany": "bundesliga",
-
-    # Ligue 1 variations
-    "ligue 1": "ligue-1",
-    "french league": "ligue-1",
-    "france": "ligue-1",
-
-    # Swedish leagues
-    "allsvenskan": "allsvenskan",
-    "superettan": "superettan",
-    "sweden": "allsvenskan",
-    "swedish league": "allsvenskan",
-
-    # Other leagues
-    "eredivisie": "eredivisie",
-    "netherlands": "eredivisie",
-    "dutch league": "eredivisie",
-    "liga portugal": "liga-portugal",
-    "portuguese league": "liga-portugal",
-    "portugal": "liga-portugal",
-    "scottish premiership": "scottish-premiership",
-    "scotland": "scottish-premiership",
-    "super lig": "super-lig",
-    "turkish league": "super-lig",
-    "turkey": "super-lig",
-    "belgian pro league": "belgian-pro-league",
-    "belgium": "belgian-pro-league",
-}
+# DEPRECATED: Old hardcoded mappings replaced with comprehensive mappings from sipap-common
+# Kept for reference only. All league mapping logic now uses sipap-common.data module.
+# LEAGUE_NAME_MAPPINGS = {...}  # Removed - see sipap-common/data/league_mappings.py
 
 
 def map_league_name_to_id(league_name: str) -> str | None:
-    """Map user-friendly league name to database league ID.
+    """Map user-friendly league name to database slug (league_id column value).
+
+    Uses comprehensive mappings from sipap-common covering 380 competitions across 77 countries.
+    Supports:
+    - Canonical competition names: "Premier League", "Cupa României", "Türkiye Kupası"
+    - Country names: "romania" → resolves to first Romanian league in results
+    - Aliases: "EPL", "Europa League", "romanian cup"
 
     Args:
-        league_name: User-friendly league name (e.g., "Premier League", "EPL")
+        league_name: User-friendly league name (e.g., "Premier League", "EPL", "romania")
 
     Returns:
-        League ID string or None if not found
+        Database slug for league_id column, or None if not found
 
     Example:
         >>> map_league_name_to_id("Premier League")
-        "premier-league"
+        'premier-league'
         >>> map_league_name_to_id("EPL")
-        "premier-league"
+        'premier-league'
+        >>> map_league_name_to_id("Cupa României")
+        'cupa-romaniei'
         >>> map_league_name_to_id("Unknown League")
         None
     """
-    return LEAGUE_NAME_MAPPINGS.get(league_name.lower().strip())
+    from sipap_common.data import find_league_matches, league_name_to_db_slug
+
+    # Step 1: Find canonical league names using comprehensive mappings
+    canonical_names = find_league_matches(league_name)
+
+    if not canonical_names:
+        logger.warning(f"No league match found for: '{league_name}'")
+        return None
+
+    # Step 2: Convert first canonical name to database slug
+    # If user query returns multiple leagues (e.g., "romania" → 4 leagues),
+    # we take the first one. Caller should be more specific if they want a particular league.
+    canonical_name = canonical_names[0]
+    db_slug = league_name_to_db_slug(canonical_name)
+
+    if not db_slug:
+        logger.warning(
+            f"Canonical name '{canonical_name}' found but no database slug mapping exists. "
+            f"Add mapping to LEAGUE_NAME_TO_DB_SLUG in sipap-common."
+        )
+        return None
+
+    logger.debug(f"League mapping: '{league_name}' → '{canonical_name}' → '{db_slug}'")
+    return db_slug
 
 
 async def search_fixtures(
