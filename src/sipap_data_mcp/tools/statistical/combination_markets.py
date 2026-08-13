@@ -146,6 +146,10 @@ async def get_win_or_total_goals(
     def over_goals(m: dict) -> bool:
         return (m['home_score'] + m['away_score']) > goals_threshold
 
+    recent = matches_data["recent_matches"]
+    last_season = matches_data["last_season"]
+    older = matches_data["older_seasons"]
+
     total = len(all_matches)
     win_only = sum(1 for m in all_matches if team_wins(m) and not over_goals(m))
     goals_only = sum(1 for m in all_matches if over_goals(m) and not team_wins(m))
@@ -154,6 +158,14 @@ async def get_win_or_total_goals(
 
     or_count = win_only + goals_only + both
     or_prob = or_count / total if total > 0 else 0.0
+
+    # Calculate weighted probability with recency bias
+    weighted_or_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: team_wins(m) or over_goals(m)
+    )
 
     return {
         "tool": "get_win_or_total_goals",
@@ -166,7 +178,8 @@ async def get_win_or_total_goals(
                 "over_goals": {"count": goals_only + both, "probability": round((goals_only + both) / total, 4) if total > 0 else 0.0}
             },
             "breakdown": {"win_only": win_only, "goals_only": goals_only, "both": both, "neither": neither},
-            "or_logic": {"count": or_count, "probability": round(or_prob, 4)}
+            "or_logic": {"count": or_count, "probability": round(or_prob, 4)},
+            "weighted_probability": weighted_or_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -195,11 +208,14 @@ async def get_win_and_total_goals(
     )
 
     all_matches = matches_data["all_matches"]
+    recent = matches_data["recent_matches"]
+    last_season = matches_data["last_season"]
+    older = matches_data["older_seasons"]
 
     if not all_matches:
         return {
             "tool": "get_win_and_total_goals",
-            "data": {"total_matches": 0, "and_probability": 0.0},
+            "data": {"total_matches": 0, "and_probability": 0.0, "weighted_probability": 0.0},
             "metadata": {"data_quality": "low"}
         }
 
@@ -224,6 +240,14 @@ async def get_win_and_total_goals(
 
     and_prob = both_true / total if total > 0 else 0.0
 
+    # Calculate weighted probability with recency bias
+    weighted_and_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: team_wins(m) and over_goals(m)
+    )
+
     return {
         "tool": "get_win_and_total_goals",
         "data": {
@@ -234,7 +258,8 @@ async def get_win_and_total_goals(
                 "team_win": {"count": sum(1 for m in all_matches if team_wins(m))},
                 "over_goals": {"count": sum(1 for m in all_matches if over_goals(m))}
             },
-            "and_logic": {"count": both_true, "probability": round(and_prob, 4)}
+            "and_logic": {"count": both_true, "probability": round(and_prob, 4)},
+            "weighted_probability": weighted_and_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -265,11 +290,14 @@ async def get_win_or_both_scores(
     )
 
     all_matches = matches_data["all_matches"]
+    recent = matches_data["recent_matches"]
+    last_season = matches_data["last_season"]
+    older = matches_data["older_seasons"]
 
     if not all_matches:
         return {
             "tool": "get_win_or_both_scores",
-            "data": {"total_matches": 0, "or_probability": 0.0},
+            "data": {"total_matches": 0, "or_probability": 0.0, "weighted_probability": 0.0},
             "metadata": {"data_quality": "low"}
         }
 
@@ -298,6 +326,14 @@ async def get_win_or_both_scores(
     or_count = win_only + bts_only + both
     or_prob = or_count / total if total > 0 else 0.0
 
+    # Calculate weighted probability with recency bias
+    weighted_or_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: team_wins(m) or both_teams_score(m)
+    )
+
     return {
         "tool": "get_win_or_both_scores",
         "data": {
@@ -308,7 +344,8 @@ async def get_win_or_both_scores(
                 "both_teams_score": {"count": bts_only + both, "probability": round((bts_only + both) / total, 4) if total > 0 else 0.0}
             },
             "breakdown": {"win_only": win_only, "bts_only": bts_only, "both": both, "neither": neither},
-            "or_logic": {"count": or_count, "probability": round(or_prob, 4)}
+            "or_logic": {"count": or_count, "probability": round(or_prob, 4)},
+            "weighted_probability": weighted_or_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -336,11 +373,14 @@ async def get_win_and_both_scores(
     )
 
     all_matches = matches_data["all_matches"]
+    recent = matches_data["recent_matches"]
+    last_season = matches_data["last_season"]
+    older = matches_data["older_seasons"]
 
     if not all_matches:
         return {
             "tool": "get_win_and_both_scores",
-            "data": {"total_matches": 0, "and_probability": 0.0},
+            "data": {"total_matches": 0, "and_probability": 0.0, "weighted_probability": 0.0},
             "metadata": {"data_quality": "low"}
         }
 
@@ -365,6 +405,14 @@ async def get_win_and_both_scores(
 
     and_prob = both_true / total if total > 0 else 0.0
 
+    # Calculate weighted probability with recency bias
+    weighted_and_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: team_wins(m) and both_teams_score(m)
+    )
+
     return {
         "tool": "get_win_and_both_scores",
         "data": {
@@ -374,7 +422,8 @@ async def get_win_and_both_scores(
                 "team_win": {"count": sum(1 for m in all_matches if team_wins(m))},
                 "both_teams_score": {"count": sum(1 for m in all_matches if both_teams_score(m))}
             },
-            "and_logic": {"count": both_true, "probability": round(and_prob, 4)}
+            "and_logic": {"count": both_true, "probability": round(and_prob, 4)},
+            "weighted_probability": weighted_and_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -402,11 +451,14 @@ async def get_both_scores_or_multi_goals(
     )
 
     all_matches = matches_data["all_matches"]
+    recent = matches_data["recent_matches"]
+    last_season = matches_data["last_season"]
+    older = matches_data["older_seasons"]
 
     if not all_matches:
         return {
             "tool": "get_both_scores_or_multi_goals",
-            "data": {"total_matches": 0, "or_probability": 0.0},
+            "data": {"total_matches": 0, "or_probability": 0.0, "weighted_probability": 0.0},
             "metadata": {"data_quality": "low"}
         }
 
@@ -425,6 +477,14 @@ async def get_both_scores_or_multi_goals(
     or_count = bts_only + goals_only + both
     or_prob = or_count / total if total > 0 else 0.0
 
+    # Calculate weighted probability with recency bias
+    weighted_or_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: both_teams_score(m) or over_goals(m)
+    )
+
     return {
         "tool": "get_both_scores_or_multi_goals",
         "data": {
@@ -435,7 +495,8 @@ async def get_both_scores_or_multi_goals(
                 "over_goals": {"count": goals_only + both, "probability": round((goals_only + both) / total, 4) if total > 0 else 0.0}
             },
             "breakdown": {"bts_only": bts_only, "goals_only": goals_only, "both": both, "neither": neither},
-            "or_logic": {"count": or_count, "probability": round(or_prob, 4)}
+            "or_logic": {"count": or_count, "probability": round(or_prob, 4)},
+            "weighted_probability": weighted_or_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -464,11 +525,14 @@ async def get_no_defeat_and_total_goals(
     )
 
     all_matches = matches_data["all_matches"]
+    recent = matches_data["recent_matches"]
+    last_season = matches_data["last_season"]
+    older = matches_data["older_seasons"]
 
     if not all_matches:
         return {
             "tool": "get_no_defeat_and_total_goals",
-            "data": {"total_matches": 0, "and_probability": 0.0},
+            "data": {"total_matches": 0, "and_probability": 0.0, "weighted_probability": 0.0},
             "metadata": {"data_quality": "low"}
         }
 
@@ -504,6 +568,14 @@ async def get_no_defeat_and_total_goals(
 
     and_prob = both_true / total if total > 0 else 0.0
 
+    # Calculate weighted probability with recency bias
+    weighted_and_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: team_avoids_defeat(m) and over_goals(m)
+    )
+
     return {
         "tool": "get_no_defeat_and_total_goals",
         "data": {
@@ -514,7 +586,8 @@ async def get_no_defeat_and_total_goals(
                 "team_avoids_defeat": {"count": sum(1 for m in all_matches if team_avoids_defeat(m))},
                 "over_goals": {"count": sum(1 for m in all_matches if over_goals(m))}
             },
-            "and_logic": {"count": both_true, "probability": round(and_prob, 4)}
+            "and_logic": {"count": both_true, "probability": round(and_prob, 4)},
+            "weighted_probability": weighted_and_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -554,9 +627,14 @@ async def get_avoid_halftime_defeat(
     if not matches_with_ht:
         return {
             "tool": "get_avoid_halftime_defeat",
-            "data": {"total_matches": 0, "perspective": perspective, "avoid_defeat_probability": 0.0},
+            "data": {"total_matches": 0, "perspective": perspective, "avoid_defeat_probability": 0.0, "weighted_probability": 0.0},
             "metadata": {"halftime_data_coverage": 0.0, "data_quality": "low"}
         }
+
+    # Get partitioned matches with halftime data
+    recent_with_ht = [m for m in matches_data["recent_matches"] if has_ht_data(m)]
+    last_season_with_ht = [m for m in matches_data["last_season"] if has_ht_data(m)]
+    older_with_ht = [m for m in matches_data["older_seasons"] if has_ht_data(m)]
 
     def get_ht_result(m: dict) -> str:
         """Get halftime result from team's perspective."""
@@ -579,6 +657,13 @@ async def get_avoid_halftime_defeat(
             else:
                 return 'draw'
 
+    def avoids_ht_defeat(m: dict) -> bool:
+        result = get_ht_result(m)
+        if perspective == "home":
+            return result in ['home_win', 'draw']
+        else:
+            return result in ['away_win', 'draw']
+
     total = len(matches_with_ht)
     ht_home_wins = sum(1 for m in matches_with_ht if get_ht_result(m) == 'home_win')
     ht_draws = sum(1 for m in matches_with_ht if get_ht_result(m) == 'draw')
@@ -591,6 +676,14 @@ async def get_avoid_halftime_defeat(
 
     avoid_defeat_prob = avoid_defeat_count / total if total > 0 else 0.0
 
+    # Calculate weighted probability with recency bias
+    weighted_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent_with_ht,
+        last_season=last_season_with_ht,
+        older_seasons=older_with_ht,
+        condition_fn=avoids_ht_defeat
+    )
+
     return {
         "tool": "get_avoid_halftime_defeat",
         "data": {
@@ -598,7 +691,8 @@ async def get_avoid_halftime_defeat(
             "perspective": perspective,
             "halftime_outcomes": {"home_win": ht_home_wins, "draw": ht_draws, "away_win": ht_away_wins},
             "avoid_defeat_count": avoid_defeat_count,
-            "avoid_defeat_probability": round(avoid_defeat_prob, 4)
+            "avoid_defeat_probability": round(avoid_defeat_prob, 4),
+            "weighted_probability": weighted_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -639,9 +733,14 @@ async def get_avoid_2nd_half_defeat(
     if not matches_with_ht:
         return {
             "tool": "get_avoid_2nd_half_defeat",
-            "data": {"total_matches": 0, "perspective": perspective, "avoid_defeat_probability": 0.0},
+            "data": {"total_matches": 0, "perspective": perspective, "avoid_defeat_probability": 0.0, "weighted_probability": 0.0},
             "metadata": {"halftime_data_coverage": 0.0, "data_quality": "low"}
         }
+
+    # Get partitioned matches with halftime data
+    recent_with_ht = [m for m in matches_data["recent_matches"] if has_ht_data(m)]
+    last_season_with_ht = [m for m in matches_data["last_season"] if has_ht_data(m)]
+    older_with_ht = [m for m in matches_data["older_seasons"] if has_ht_data(m)]
 
     def get_2h_result(m: dict) -> str:
         """Get second-half result from team's perspective."""
@@ -671,6 +770,13 @@ async def get_avoid_2nd_half_defeat(
             else:
                 return 'draw'
 
+    def avoids_2h_defeat(m: dict) -> bool:
+        result = get_2h_result(m)
+        if perspective == "home":
+            return result in ['home_win', 'draw']
+        else:
+            return result in ['away_win', 'draw']
+
     total = len(matches_with_ht)
     second_half_home_wins = sum(1 for m in matches_with_ht if get_2h_result(m) == 'home_win')
     second_half_draws = sum(1 for m in matches_with_ht if get_2h_result(m) == 'draw')
@@ -683,6 +789,14 @@ async def get_avoid_2nd_half_defeat(
 
     avoid_defeat_prob = avoid_defeat_count / total if total > 0 else 0.0
 
+    # Calculate weighted probability with recency bias
+    weighted_prob = RecencyWeightCalculator.calculate(
+        recent_matches=recent_with_ht,
+        last_season=last_season_with_ht,
+        older_seasons=older_with_ht,
+        condition_fn=avoids_2h_defeat
+    )
+
     return {
         "tool": "get_avoid_2nd_half_defeat",
         "data": {
@@ -690,7 +804,8 @@ async def get_avoid_2nd_half_defeat(
             "perspective": perspective,
             "second_half_outcomes": {"home_win": second_half_home_wins, "draw": second_half_draws, "away_win": second_half_away_wins},
             "avoid_defeat_count": avoid_defeat_count,
-            "avoid_defeat_probability": round(avoid_defeat_prob, 4)
+            "avoid_defeat_probability": round(avoid_defeat_prob, 4),
+            "weighted_probability": weighted_prob  # Recency weighted (50/30/20)
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
