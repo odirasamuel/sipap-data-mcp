@@ -1072,3 +1072,138 @@ class AuroraDataClient:
             rows = await conn.fetch(query, team_ids)
 
         return [self._record_to_dict(row) for row in rows]
+
+    async def get_matches_by_external_league_id(
+        self,
+        external_league_id: str,
+        date_from: str,
+        date_to: str,
+        status: str,
+        has_odds: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Retrieve matches by API-Football league ID.
+
+        ID-FIRST ARCHITECTURE: Uses API-Football league ID for unambiguous resolution.
+        This eliminates string matching ambiguity (e.g., "Premier League" exists in
+        multiple countries: England=39, Wales=113, Belarus=117).
+
+        The external_league_id maps to the leagues.external_id column, which stores
+        API-Football competition IDs.
+
+        Args:
+            external_league_id: API-Football league ID (e.g., "140" for La Liga, "39" for Premier League England)
+            date_from: Start date in ISO 8601 format (YYYY-MM-DD)
+            date_to: End date in ISO 8601 format (YYYY-MM-DD)
+            status: Match status filter (scheduled, live, finished, NS)
+            has_odds: Only include matches with odds available (default: False)
+
+        Returns:
+            List of match dictionaries with keys:
+            - id, external_id, scheduled_at, status
+            - home_team, away_team, home_team_id, away_team_id
+            - league, league_id, league_external_id
+            - home_score, away_score, metadata
+            - best_home_odds, best_draw_odds, best_away_odds, bookmakers_count
+
+        Raises:
+            ValueError: If date_from or date_to are invalid ISO 8601 dates
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            # Get La Liga matches (ID 140)
+            matches = await client.get_matches_by_external_league_id(
+                external_league_id="140",
+                date_from="2026-08-15",
+                date_to="2026-08-22",
+                status="NS"
+            )
+
+            # Get Premier League England matches (ID 39) with odds
+            matches = await client.get_matches_by_external_league_id(
+                external_league_id="39",
+                date_from="2026-08-15",
+                date_to="2026-08-22",
+                status="NS",
+                has_odds=True
+            )
+            ```
+        """
+        # Validate inputs
+        self._validate_dates(date_from, date_to)
+        self._ensure_connected()
+
+        # Build SELECT clause with league join
+        select_clause = """
+            SELECT
+                m.id, m.external_id, m.scheduled_at, m.status,
+                m.home_team, m.away_team,
+                m.home_team_id, m.away_team_id,
+                m.league, m.league_id,
+                l.external_id AS league_external_id,
+                m.home_score, m.away_score, m.metadata,
+                -- Aggregate odds data
+                MAX(o.home_odds) as best_home_odds,
+                MAX(o.draw_odds) as best_draw_odds,
+                MAX(o.away_odds) as best_away_odds,
+                COUNT(DISTINCT o.bookmaker_id) as bookmakers_count
+            FROM matches m
+            JOIN leagues l ON m.league_id = l.id
+            LEFT JOIN odds o ON m.external_id = CAST(o.fixture_id AS TEXT)
+                AND o.market = '1X2'
+                AND o.is_live = false
+        """
+
+        # Build WHERE clause
+        # Support both 'NS' (API-Football) and 'scheduled' status codes
+        status_condition = "m.status IN ('NS', 'scheduled')" if status in ("NS", "scheduled") else "m.status = $4"
+
+        base_params: list[Any] = [
+            self._parse_date(date_from),
+            self._parse_date(date_to),
+            external_league_id,
+        ]
+
+        where_conditions = [
+            "m.scheduled_at::date >= $1",
+            "m.scheduled_at::date <= $2",
+            "l.external_id = $3",  # Use external_id from leagues table
+            status_condition,
+        ]
+
+        if status not in ("NS", "scheduled"):
+            base_params.append(status)
+
+        group_clause = """
+            GROUP BY m.id, m.external_id, m.scheduled_at, m.status,
+                     m.home_team, m.away_team, m.home_team_id, m.away_team_id,
+                     m.league, m.league_id, l.external_id, m.home_score, m.away_score, m.metadata
+        """
+
+        having_clause = ""
+        if has_odds:
+            having_clause = "HAVING COUNT(DISTINCT o.bookmaker_id) > 0"
+
+        full_query = f"""
+            {select_clause}
+            WHERE {' AND '.join(where_conditions)}
+            {group_clause}
+            {having_clause}
+            ORDER BY m.scheduled_at ASC
+        """
+
+        # Log query for debugging
+        logger.info(
+            f"get_matches_by_external_league_id() - external_league_id={external_league_id}, "
+            f"date_from={date_from}, date_to={date_to}, status={status}, has_odds={has_odds}"
+        )
+        logger.debug(f"Query: {full_query}")
+        logger.debug(f"Params: {base_params}")
+
+        # Execute query
+        assert self._pool is not None
+        async with self._pool.acquire() as connection:
+            records = await connection.fetch(full_query, *base_params)
+            logger.info(f"get_matches_by_external_league_id() - returned {len(records)} records")
+
+        return [self._record_to_dict(record) for record in records]

@@ -243,6 +243,7 @@ def map_league_name_to_id(league_name: str) -> str | None:
 
 async def search_fixtures(
     db_client: AuroraDataClient,
+    league_ids: list[int] | None = None,
     league_names: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
@@ -253,18 +254,25 @@ async def search_fixtures(
     """Search for fixtures with flexible filtering.
 
     This tool provides advanced fixture search with:
-    - League filtering by user-friendly names (e.g., "Premier League", "EPL")
+    - League filtering by API-Football IDs (preferred) or user-friendly names
     - Date range filtering with sensible defaults (next 7 days if not specified)
     - Status filtering (scheduled, live, finished)
     - Odds availability filtering (only matches with bookmaker odds)
     - Result limit
 
+    ID-FIRST ARCHITECTURE:
+    Prefer using league_ids (API-Football IDs) over league_names for unambiguous resolution.
+    - league_ids: [140, 39] → La Liga (Spain), Premier League (England)
+    - Eliminates string matching ambiguity (e.g., "Premier League" exists in multiple countries)
+
     Designed for batch prediction requests like "20 odds in Premier League this weekend".
 
     Args:
         db_client: Database client instance
-        league_names: List of user-friendly league names (e.g., ["Premier League", "LaLiga"])
-                     Maps variations like "EPL" → "premier-league", "Spain" → "laliga"
+        league_ids: List of API-Football league IDs (e.g., [140, 39] for La Liga, Premier League)
+                   PREFERRED - Use IDs for unambiguous resolution. These map to external_id in DB.
+        league_names: LEGACY - List of user-friendly league names (e.g., ["Premier League", "LaLiga"])
+                     Only used if league_ids is not provided. Maps variations like "EPL" → "Premier League"
         date_from: Start date in ISO 8601 format (YYYY-MM-DD). Defaults to today.
         date_to: End date in ISO 8601 format (YYYY-MM-DD). Defaults to today + 7 days.
         status: Match status filter (scheduled, live, finished). Default: "scheduled"
@@ -283,11 +291,15 @@ async def search_fixtures(
 
     Example:
         ```python
-        # Basic: Get scheduled fixtures with odds for next 7 days
-        result = await search_fixtures(db_client=client)
-        # Returns: {"fixtures": [...], "count": 45, "filters_applied": {...}}
+        # NEW: Using API-Football IDs (preferred)
+        result = await search_fixtures(
+            db_client=client,
+            league_ids=[140, 39],  # La Liga + Premier League
+            date_from="2026-08-03",
+            date_to="2026-08-10"
+        )
 
-        # With league filter: Premier League and LaLiga
+        # LEGACY: Using league names (still supported)
         result = await search_fixtures(
             db_client=client,
             league_names=["Premier League", "LaLiga"],
@@ -306,6 +318,7 @@ async def search_fixtures(
     logger.info(
         "search_fixtures called",
         extra={
+            "league_ids": league_ids,
             "league_names": league_names,
             "date_from": date_from,
             "date_to": date_to,
@@ -323,47 +336,60 @@ async def search_fixtures(
 
     logger.info(f"Date range after defaults: {date_from} to {date_to}")
 
-    # Map league names to IDs
-    league_ids: list[str] | None = None
-    if league_names:
-        league_ids = []
-        for name in league_names:
-            league_id = map_league_name_to_id(name)
-            logger.debug(f"League name mapping: '{name}' → '{league_id}'")
-            if league_id:
-                league_ids.append(league_id)
-            else:
-                logger.warning(f"Unknown league name: '{name}' (skipping)")
-
-        logger.info(f"Mapped league IDs: {league_ids}")
-
     # Query database for each league (if specified) or all leagues
-    # The has_odds filtering is now done at the database level via SQL WHERE clause
+    # The has_odds filtering is done at the database level via SQL WHERE clause
     all_fixtures: list[dict[str, Any]] = []
 
+    # NEW: ID-FIRST architecture - use API-Football IDs if provided
     if league_ids:
-        # Query each league separately
-        logger.info(f"Querying {len(league_ids)} leagues individually")
-        for league_id in league_ids:
-            logger.debug(f"Querying league: {league_id}")
-            fixtures = await db_client.get_matches(
+        # PRIMARY PATH: Use API-Football IDs for unambiguous resolution
+        logger.info(f"Using ID-first resolution with {len(league_ids)} API-Football IDs: {league_ids}")
+        for ext_id in league_ids:
+            logger.debug(f"Querying league by external_id: {ext_id}")
+            fixtures = await db_client.get_matches_by_external_league_id(
+                external_league_id=str(ext_id),
                 date_from=date_from,
                 date_to=date_to,
                 status=status,
-                league_id=league_id,
-                has_odds=has_odds,  # Database-level filtering
+                has_odds=has_odds,
             )
-            logger.info(f"League '{league_id}': found {len(fixtures)} fixtures")
+            logger.info(f"League ID {ext_id}: found {len(fixtures)} fixtures")
             all_fixtures.extend(fixtures)
+
+    # LEGACY PATH: Use league names if IDs not provided (for backward compatibility)
     elif league_names:
-        # CRITICAL: User requested specific leagues but ALL mappings failed
-        # DO NOT silently return all fixtures - return 0 to trigger Intelligence MCP fallback
-        # This ensures proper fallback behavior when league mapping fails
-        logger.warning(
-            f"User requested leagues {league_names} but no valid mappings found. "
-            f"Returning 0 fixtures to trigger fallback."
-        )
-        all_fixtures = []  # Return empty to trigger Intelligence MCP fallback
+        # Map league names to canonical names for ILIKE matching
+        canonical_names: list[str] = []
+        for name in league_names:
+            canonical = map_league_name_to_id(name)
+            logger.debug(f"League name mapping: '{name}' → '{canonical}'")
+            if canonical:
+                canonical_names.append(canonical)
+            else:
+                logger.warning(f"Unknown league name: '{name}' (skipping)")
+
+        if canonical_names:
+            logger.info(f"Using legacy name resolution: {canonical_names}")
+            for canonical_name in canonical_names:
+                logger.debug(f"Querying league by name: {canonical_name}")
+                fixtures = await db_client.get_matches(
+                    date_from=date_from,
+                    date_to=date_to,
+                    status=status,
+                    league_id=canonical_name,
+                    has_odds=has_odds,
+                )
+                logger.info(f"League '{canonical_name}': found {len(fixtures)} fixtures")
+                all_fixtures.extend(fixtures)
+        else:
+            # CRITICAL: User requested specific leagues but ALL mappings failed
+            # DO NOT silently return all fixtures - return 0 to trigger fallback
+            logger.warning(
+                f"User requested leagues {league_names} but no valid mappings found. "
+                f"Returning 0 fixtures to trigger fallback."
+            )
+            all_fixtures = []
+
     else:
         # No league filter requested - query all leagues
         logger.info("Querying all leagues (no league filter applied)")
@@ -372,7 +398,7 @@ async def search_fixtures(
             date_to=date_to,
             status=status,
             league_id=None,
-            has_odds=has_odds,  # Database-level filtering
+            has_odds=has_odds,
         )
         logger.info(f"Found {len(fixtures)} fixtures across all leagues")
         all_fixtures = fixtures
