@@ -194,54 +194,51 @@ async def search_matches(
 
 
 def map_league_name_to_id(league_name: str) -> str | None:
-    """Map user-friendly league name to database slug (league_id column value).
+    """Map user-friendly league name to canonical name for database query.
+
+    IMPORTANT: The database stores league names EXACTLY as they come from API-Football
+    (e.g., "La Liga", "Premier League"), NOT slug format (e.g., "laliga", "premier-league").
+    This function returns the canonical name for ILIKE matching in SQL queries.
 
     Uses comprehensive mappings from sipap-common covering 380 competitions across 77 countries.
     Supports:
     - Canonical competition names: "Premier League", "Cupa României", "Türkiye Kupası"
     - Country names: "romania" → resolves to first Romanian league in results
-    - Aliases: "EPL", "Europa League", "romanian cup"
+    - Aliases: "EPL", "Europa League", "romanian cup", "LaLiga", "Spanish LaLiga"
 
     Args:
-        league_name: User-friendly league name (e.g., "Premier League", "EPL", "romania")
+        league_name: User-friendly league name (e.g., "Premier League", "EPL", "LaLiga")
 
     Returns:
-        Database slug for league_id column, or None if not found
+        Canonical league name for database query, or None if not found
 
     Example:
         >>> map_league_name_to_id("Premier League")
-        'premier-league'
+        'Premier League'
         >>> map_league_name_to_id("EPL")
-        'premier-league'
-        >>> map_league_name_to_id("Cupa României")
-        'cupa-romaniei'
+        'Premier League'
+        >>> map_league_name_to_id("LaLiga")
+        'La Liga'
+        >>> map_league_name_to_id("Spanish LaLiga")
+        'La Liga'
         >>> map_league_name_to_id("Unknown League")
         None
     """
-    from sipap_common.data import find_league_matches, league_name_to_db_slug
+    from sipap_common.data import find_league_matches
 
-    # Step 1: Find canonical league names using comprehensive mappings
+    # Find canonical league names using comprehensive mappings
+    # This handles aliases like "LaLiga" → "La Liga", "EPL" → "Premier League"
     canonical_names = find_league_matches(league_name)
 
     if not canonical_names:
         logger.warning(f"No league match found for: '{league_name}'")
         return None
 
-    # Step 2: Convert first canonical name to database slug
-    # If user query returns multiple leagues (e.g., "romania" → 4 leagues),
-    # we take the first one. Caller should be more specific if they want a particular league.
+    # Return the first canonical name - this is what's stored in the database
+    # Database stores league names exactly as API-Football provides them
     canonical_name = canonical_names[0]
-    db_slug = league_name_to_db_slug(canonical_name)
-
-    if not db_slug:
-        logger.warning(
-            f"Canonical name '{canonical_name}' found but no database slug mapping exists. "
-            f"Add mapping to LEAGUE_NAME_TO_DB_SLUG in sipap-common."
-        )
-        return None
-
-    logger.debug(f"League mapping: '{league_name}' → '{canonical_name}' → '{db_slug}'")
-    return db_slug
+    logger.debug(f"League mapping: '{league_name}' → '{canonical_name}'")
+    return canonical_name
 
 
 async def search_fixtures(
@@ -358,8 +355,17 @@ async def search_fixtures(
             )
             logger.info(f"League '{league_id}': found {len(fixtures)} fixtures")
             all_fixtures.extend(fixtures)
+    elif league_names:
+        # CRITICAL: User requested specific leagues but ALL mappings failed
+        # DO NOT silently return all fixtures - return 0 to trigger Intelligence MCP fallback
+        # This ensures proper fallback behavior when league mapping fails
+        logger.warning(
+            f"User requested leagues {league_names} but no valid mappings found. "
+            f"Returning 0 fixtures to trigger fallback."
+        )
+        all_fixtures = []  # Return empty to trigger Intelligence MCP fallback
     else:
-        # Query all leagues
+        # No league filter requested - query all leagues
         logger.info("Querying all leagues (no league filter applied)")
         fixtures = await db_client.get_matches(
             date_from=date_from,
