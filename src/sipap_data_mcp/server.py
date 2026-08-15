@@ -351,10 +351,15 @@ class SIPAPDataMCP(MCPServer):
         input_schema={
             "type": "object",
             "properties": {
+                "league_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "List of API-Football league IDs (preferred). E.g., [39] for Premier League, [140] for La Liga"
+                },
                 "league_names": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of user-friendly league names (e.g., ['Premier League', 'LaLiga'])"
+                    "description": "List of user-friendly league names (legacy fallback). E.g., ['Premier League', 'LaLiga']"
                 },
                 "date_from": {
                     "type": "string",
@@ -385,6 +390,7 @@ class SIPAPDataMCP(MCPServer):
     )
     def search_fixtures(
         self,
+        league_ids: list[int] | None = None,
         league_names: list[str] | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
@@ -395,10 +401,11 @@ class SIPAPDataMCP(MCPServer):
         """Search for fixtures with flexible filtering.
 
         Designed for batch prediction requests like "20 odds in Premier League this weekend".
-        Supports league name variations (EPL → Premier League), date ranges, and odds filtering.
+        Supports league filtering by API-Football IDs (preferred) or user-friendly names (legacy).
 
         Args:
-            league_names: List of user-friendly league names
+            league_ids: List of API-Football league IDs (preferred). E.g., [39, 140]
+            league_names: List of user-friendly league names (legacy fallback)
             date_from: Start date (YYYY-MM-DD). Defaults to today.
             date_to: End date (YYYY-MM-DD). Defaults to today + 7 days.
             status: Match status filter. Default: "scheduled"
@@ -412,6 +419,7 @@ class SIPAPDataMCP(MCPServer):
         return self._run_async(
             search_fixtures(
                 db_client=db_client,
+                league_ids=league_ids,
                 league_names=league_names,
                 date_from=date_from,
                 date_to=date_to,
