@@ -273,13 +273,13 @@ class AuroraDataClient:
             date_to: End date in ISO 8601 format
             status: Match status filter
             league_id: Optional league name filter (e.g., "allsvenskan", "premier-league")
-            has_odds: Only include matches with odds available (checks odds table)
+            has_odds: Only include matches with odds available (checks metadata)
 
         Returns:
             Tuple of (query string, parameters tuple)
         """
-        # Base SELECT clause with odds aggregation
-        # Join with odds table to get best odds across all bookmakers
+        # Base SELECT clause with odds from metadata JSONB
+        # Reads from matches.metadata->'odds'->'best_odds' where odds updater stores them
         select_clause = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
@@ -287,15 +287,12 @@ class AuroraDataClient:
                 m.home_team_id, m.away_team_id,
                 m.league, m.league_id,
                 m.home_score, m.away_score, m.metadata,
-                -- Aggregate odds data
-                MAX(o.home_odds) as best_home_odds,
-                MAX(o.draw_odds) as best_draw_odds,
-                MAX(o.away_odds) as best_away_odds,
-                COUNT(DISTINCT o.bookmaker_id) as bookmakers_count
+                -- Extract odds from metadata JSONB
+                (m.metadata->'odds'->'best_odds'->>'home')::float as best_home_odds,
+                (m.metadata->'odds'->'best_odds'->>'draw')::float as best_draw_odds,
+                (m.metadata->'odds'->'best_odds'->>'away')::float as best_away_odds,
+                CASE WHEN m.metadata->'odds'->'best_odds' IS NOT NULL THEN 1 ELSE 0 END as bookmakers_count
             FROM matches m
-            LEFT JOIN odds o ON m.external_id = CAST(o.fixture_id AS TEXT)
-                AND o.market = '1X2'
-                AND o.is_live = false
         """
 
         # Build WHERE clause and parameters
@@ -324,24 +321,12 @@ class AuroraDataClient:
             where_conditions.append(f"m.league ILIKE ${len(base_params) + 1}")
             base_params.append(league_id)
 
-        # Add GROUP BY and HAVING for odds filtering
-        group_clause = """
-            GROUP BY m.id, m.external_id, m.scheduled_at, m.status,
-                     m.home_team, m.away_team, m.home_team_id, m.away_team_id,
-                     m.league, m.league_id, m.home_score, m.away_score, m.metadata
-        """
-
-        having_clause = ""
+        # Add odds filter if requested (checks metadata JSONB)
         if has_odds:
-            # Only include matches that have at least 1 bookmaker with odds
-            having_clause = """
-                HAVING COUNT(DISTINCT o.bookmaker_id) > 0
-            """
+            where_conditions.append("m.metadata->'odds'->'best_odds' IS NOT NULL")
 
         where_clause = f"""
             WHERE {' AND '.join(where_conditions)}
-            {group_clause}
-            {having_clause}
             ORDER BY m.scheduled_at ASC
         """
         params = tuple(base_params)
@@ -649,20 +634,20 @@ class AuroraDataClient:
         fixture_id: int,
         is_live: bool = False,
     ) -> list[dict[str, Any]]:
-        """Get betting odds for a match from dedicated odds table.
+        """Get betting odds for a match from matches.metadata JSONB.
 
-        UPDATED: Now queries odds table (Phase 3 schema).
-        OLD: matches.metadata->'odds' JSONB column (slow, not indexed)
-        NEW: odds table (dedicated, indexed, faster)
+        Reads odds from matches.metadata->'odds'->'best_odds' where the
+        odds updater stores aggregated best odds across all bookmakers.
 
         Args:
-            fixture_id: API-Football fixture ID
+            fixture_id: API-Football fixture ID (stored as external_id in matches)
             is_live: Whether to fetch live odds (default: False for pre-match)
+                     Note: Live odds not currently supported in metadata storage
 
         Returns:
-            List of odds records from different bookmakers. Each record contains:
+            List with single odds record containing best odds. Each record contains:
             fixture_id, bookmaker_id, bookmaker_name, market, home_odds,
-            draw_odds, away_odds, is_live, created_at.
+            draw_odds, away_odds, is_live, updated_at.
 
         Raises:
             RuntimeError: If client not connected
@@ -672,34 +657,57 @@ class AuroraDataClient:
             odds = await client.get_match_odds(fixture_id=1234567)
             # Returns: [
             #   {
-            #     "bookmaker_name": "Bet365",
+            #     "fixture_id": 1234567,
+            #     "bookmaker_id": 0,
+            #     "bookmaker_name": "Best Odds",
             #     "market": "1X2",
             #     "home_odds": 1.85,
             #     "draw_odds": 3.40,
             #     "away_odds": 4.20,
-            #     ...
-            #   },
-            #   ...
+            #     "is_live": false,
+            #     "updated_at": "2026-08-16T13:39:48"
+            #   }
             # ]
             ```
         """
         self._ensure_connected()
 
+        # Query matches.metadata for odds (where odds updater stores them)
         query = """
             SELECT
-                fixture_id, bookmaker_id, bookmaker_name,
-                market, home_odds, draw_odds, away_odds,
-                is_live, created_at
-            FROM odds
-            WHERE fixture_id = $1 AND is_live = $2
-            ORDER BY bookmaker_name, market
+                external_id,
+                metadata->'odds'->'best_odds'->>'home' as home_odds,
+                metadata->'odds'->'best_odds'->>'draw' as draw_odds,
+                metadata->'odds'->'best_odds'->>'away' as away_odds,
+                metadata->'odds'->>'updated_at' as updated_at
+            FROM matches
+            WHERE external_id = $1
+              AND metadata->'odds'->'best_odds' IS NOT NULL
         """
 
         assert self._pool is not None
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(query, fixture_id, is_live)
+            row = await conn.fetchrow(query, str(fixture_id))
 
-        return [self._record_to_dict(row) for row in rows]
+        if not row:
+            return []
+
+        # Convert to expected format (list of odds records)
+        home_odds = float(row['home_odds']) if row['home_odds'] else None
+        draw_odds = float(row['draw_odds']) if row['draw_odds'] else None
+        away_odds = float(row['away_odds']) if row['away_odds'] else None
+
+        return [{
+            'fixture_id': fixture_id,
+            'bookmaker_id': 0,
+            'bookmaker_name': 'Best Odds',
+            'market': '1X2',
+            'home_odds': home_odds,
+            'draw_odds': draw_odds,
+            'away_odds': away_odds,
+            'is_live': is_live,
+            'updated_at': row['updated_at'],
+        }]
 
     async def get_odds_movements(
         self,
@@ -1134,6 +1142,7 @@ class AuroraDataClient:
         self._ensure_connected()
 
         # Build SELECT clause with league join
+        # Reads odds from matches.metadata->'odds'->'best_odds' where odds updater stores them
         select_clause = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
@@ -1142,16 +1151,13 @@ class AuroraDataClient:
                 m.league, m.league_id,
                 l.external_id AS league_external_id,
                 m.home_score, m.away_score, m.metadata,
-                -- Aggregate odds data
-                MAX(o.home_odds) as best_home_odds,
-                MAX(o.draw_odds) as best_draw_odds,
-                MAX(o.away_odds) as best_away_odds,
-                COUNT(DISTINCT o.bookmaker_id) as bookmakers_count
+                -- Extract odds from metadata JSONB
+                (m.metadata->'odds'->'best_odds'->>'home')::float as best_home_odds,
+                (m.metadata->'odds'->'best_odds'->>'draw')::float as best_draw_odds,
+                (m.metadata->'odds'->'best_odds'->>'away')::float as best_away_odds,
+                CASE WHEN m.metadata->'odds'->'best_odds' IS NOT NULL THEN 1 ELSE 0 END as bookmakers_count
             FROM matches m
             JOIN leagues l ON m.league_id = l.id
-            LEFT JOIN odds o ON m.external_id = CAST(o.fixture_id AS TEXT)
-                AND o.market = '1X2'
-                AND o.is_live = false
         """
 
         # Build WHERE clause
@@ -1174,21 +1180,13 @@ class AuroraDataClient:
         if status not in ("NS", "scheduled"):
             base_params.append(status)
 
-        group_clause = """
-            GROUP BY m.id, m.external_id, m.scheduled_at, m.status,
-                     m.home_team, m.away_team, m.home_team_id, m.away_team_id,
-                     m.league, m.league_id, l.external_id, m.home_score, m.away_score, m.metadata
-        """
-
-        having_clause = ""
+        # Add odds filter if requested (checks metadata JSONB)
         if has_odds:
-            having_clause = "HAVING COUNT(DISTINCT o.bookmaker_id) > 0"
+            where_conditions.append("m.metadata->'odds'->'best_odds' IS NOT NULL")
 
         full_query = f"""
             {select_clause}
             WHERE {' AND '.join(where_conditions)}
-            {group_clause}
-            {having_clause}
             ORDER BY m.scheduled_at ASC
         """
 

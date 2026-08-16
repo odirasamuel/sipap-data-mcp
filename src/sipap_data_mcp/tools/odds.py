@@ -5,7 +5,7 @@ Provides tools for:
 - Tracking odds movements over time
 - Identifying sharp money and steam moves
 
-UPDATED for Phase 3: Now uses integer fixture IDs from API-Football.
+UPDATED: Now reads odds from matches.metadata JSONB where the odds updater stores them.
 """
 
 from typing import Any
@@ -18,10 +18,10 @@ async def get_match_odds(
     fixture_id: int,
     is_live: bool = False,
 ) -> dict[str, Any]:
-    """Get betting odds for a match from multiple bookmakers.
+    """Get betting odds for a match.
 
-    UPDATED for Phase 3: Now accepts integer fixture ID from API-Football
-    and queries dedicated odds table (not JSONB).
+    Reads odds from matches.metadata->'odds'->'best_odds' where the odds
+    updater stores aggregated best odds across all bookmakers.
 
     Args:
         db_client: Database client instance
@@ -30,9 +30,9 @@ async def get_match_odds(
 
     Returns:
         Dictionary with odds data including:
-        - odds: List of odds records from different bookmakers
+        - odds: List with single "Best Odds" record
         - fixture_id: The fixture ID
-        - count: Number of bookmaker odds available
+        - count: 1 if odds available, 0 otherwise
 
     Example:
         ```python
@@ -43,15 +43,14 @@ async def get_match_odds(
         # Returns:
         # {
         #   "fixture_id": 1234567,
-        #   "count": 15,
+        #   "count": 1,
         #   "odds": [
-        #     {"bookmaker_name": "Bet365", "market": "1X2", "home_odds": 1.85, ...},
-        #     ...
+        #     {"bookmaker_name": "Best Odds", "market": "1X2", "home_odds": 1.85, ...}
         #   ]
         # }
         ```
     """
-    # Query odds from dedicated odds table
+    # Query odds from matches.metadata JSONB
     odds_list = await db_client.get_match_odds(fixture_id, is_live)
 
     return {
