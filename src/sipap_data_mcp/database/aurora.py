@@ -278,13 +278,17 @@ class AuroraDataClient:
         Returns:
             Tuple of (query string, parameters tuple)
         """
-        # Base SELECT clause with odds from metadata JSONB
+        # Base SELECT clause with odds and team API IDs from metadata JSONB
         # Reads from matches.metadata->'odds'->'best_odds' where odds updater stores them
+        # Also reads team API IDs from metadata for team_statistics lookup
         select_clause = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
                 m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
+                -- Team API-Football IDs from metadata (for team_statistics lookup)
+                (m.metadata->>'home_team_api_id')::text as home_team_external_id,
+                (m.metadata->>'away_team_api_id')::text as away_team_external_id,
                 m.league, m.league_id,
                 m.home_score, m.away_score, m.metadata,
                 -- Extract odds from metadata JSONB
