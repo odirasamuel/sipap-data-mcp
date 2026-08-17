@@ -1122,6 +1122,7 @@ class AuroraDataClient:
             List of match dictionaries with keys:
             - id, external_id, scheduled_at, status
             - home_team, away_team, home_team_id, away_team_id
+            - home_team_external_id, away_team_external_id (API-Football team IDs from metadata)
             - league, league_id, league_external_id
             - home_score, away_score, metadata
             - best_home_odds, best_draw_odds, best_away_odds, bookmakers_count
@@ -1161,6 +1162,9 @@ class AuroraDataClient:
                 m.id, m.external_id, m.scheduled_at, m.status,
                 m.home_team, m.away_team,
                 m.home_team_id, m.away_team_id,
+                -- Team API-Football IDs from metadata (for team_statistics lookup)
+                (m.metadata->>'home_team_api_id')::text as home_team_external_id,
+                (m.metadata->>'away_team_api_id')::text as away_team_external_id,
                 m.league, m.league_id,
                 l.external_id AS league_external_id,
                 m.home_score, m.away_score, m.metadata,
