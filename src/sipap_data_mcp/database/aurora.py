@@ -371,6 +371,7 @@ class AuroraDataClient:
         # Query with team API IDs from metadata (primary) or teams table (fallback)
         # The metadata contains home_team_api_id and away_team_api_id from API-Football
         # This allows team_statistics lookup without requiring teams.external_id to be populated
+        # Also joins leagues table to get league_external_id (API-Football league ID)
         query = """
             SELECT
                 m.id, m.external_id, m.scheduled_at, m.status,
@@ -385,10 +386,12 @@ class AuroraDataClient:
                     at.external_id
                 ) AS away_team_external_id,
                 m.league, m.league_id,
+                l.external_id AS league_external_id,
                 m.home_score, m.away_score, m.metadata
             FROM matches m
             LEFT JOIN teams ht ON m.home_team_id = ht.id
             LEFT JOIN teams at ON m.away_team_id = at.id
+            LEFT JOIN leagues l ON m.league_id = l.id
             WHERE m.id = $1
         """
 
