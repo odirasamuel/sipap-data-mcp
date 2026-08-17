@@ -329,6 +329,11 @@ class AuroraDataClient:
         if has_odds:
             where_conditions.append("m.metadata->'odds'->'best_odds' IS NOT NULL")
 
+        # CRITICAL: Only return matches with valid team API IDs in metadata
+        # Matches without team IDs cannot be processed for predictions (team_statistics lookup fails)
+        # This filters out incomplete records created by odds_updater without fixture data
+        where_conditions.append("m.metadata->>'home_team_api_id' IS NOT NULL")
+
         where_clause = f"""
             WHERE {' AND '.join(where_conditions)}
             ORDER BY m.scheduled_at ASC
@@ -1200,6 +1205,11 @@ class AuroraDataClient:
         # Add odds filter if requested (checks metadata JSONB)
         if has_odds:
             where_conditions.append("m.metadata->'odds'->'best_odds' IS NOT NULL")
+
+        # CRITICAL: Only return matches with valid team API IDs in metadata
+        # Matches without team IDs cannot be processed for predictions (team_statistics lookup fails)
+        # This filters out incomplete records created by odds_updater without fixture data
+        where_conditions.append("m.metadata->>'home_team_api_id' IS NOT NULL")
 
         full_query = f"""
             {select_clause}
