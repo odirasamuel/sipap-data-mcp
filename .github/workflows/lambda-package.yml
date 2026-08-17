@@ -116,7 +116,7 @@ jobs:
             -t lambda_deployment/integration_test/ \
             --platform manylinux2014_aarch64 \
             --only-binary=:all: \
-            --python-version 3.12
+            --python-version 3.13
 
           # Copy integration test handler
           cp lambda_integration_test.py lambda_deployment/integration_test/
