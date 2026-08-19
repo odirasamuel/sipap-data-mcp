@@ -184,7 +184,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     try:
         response = server.handle_request(request_data)
 
-        # Log response summary
+        # Log detailed response summary
+        tool_name = request_data.get("params", {}).get("name", "unknown")
         if "result" in response:
             result = response["result"]
             if isinstance(result, dict) and "content" in result:
@@ -195,9 +196,40 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                         try:
                             data = json.loads(first_content["text"])
                             if isinstance(data, dict):
-                                logger.info(f"Response: {data.get('count', 0)} results returned")
-                        except:
-                            pass
+                                # Build a meaningful summary based on the response structure
+                                summary_parts = [f"Tool: {tool_name}"]
+
+                                # Check common response patterns
+                                if "stats" in data:
+                                    stats = data["stats"]
+                                    summary_parts.append(f"team_id={stats.get('team_id')}, league_id={stats.get('league_id')}, season={stats.get('season')}")
+                                    summary_parts.append(f"played={stats.get('total_played')}, W={stats.get('total_wins')}, D={stats.get('total_draws')}, L={stats.get('total_losses')}")
+                                elif "matches" in data:
+                                    summary_parts.append(f"matches_count={len(data['matches'])}")
+                                    if data["matches"]:
+                                        first = data["matches"][0]
+                                        summary_parts.append(f"first_match={first.get('home_team')} vs {first.get('away_team')}")
+                                elif "fixtures" in data:
+                                    summary_parts.append(f"fixtures_count={len(data['fixtures'])}")
+                                    if data["fixtures"]:
+                                        first = data["fixtures"][0]
+                                        summary_parts.append(f"first_fixture={first.get('home_team')} vs {first.get('away_team')}")
+                                elif "standings" in data:
+                                    summary_parts.append(f"standings_count={len(data['standings'])}")
+                                elif "head_to_head" in data:
+                                    summary_parts.append(f"h2h_matches={len(data.get('head_to_head', []))}")
+                                elif "count" in data:
+                                    summary_parts.append(f"count={data['count']}")
+                                else:
+                                    # Log top-level keys for unknown structures
+                                    summary_parts.append(f"keys={list(data.keys())}")
+
+                                logger.info(f"RESPONSE: {' | '.join(summary_parts)}")
+                        except Exception:
+                            logger.info(f"RESPONSE: Tool={tool_name} | raw_length={len(first_content.get('text', ''))} chars")
+        elif "error" in response:
+            error = response["error"]
+            logger.error(f"RESPONSE ERROR: Tool={tool_name} | code={error.get('code')} | message={error.get('message')}")
 
         logger.debug(f"Full response: {json.dumps(response, indent=2)}")
 
