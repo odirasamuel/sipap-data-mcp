@@ -4,12 +4,55 @@ Provides tools for retrieving team statistics, league tables, and head-to-head d
 
 UPDATED for Phase 3: Now uses integer IDs from API-Football instead of UUIDs.
 UPDATED: Added fallback logic for empty team stats (computes from recent matches).
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
+import logging
 import re
 from typing import Any
 
+from sipap_data_mcp.api.football_client import APIFootballClient
+from sipap_data_mcp.api.transformers import (
+    transform_h2h,
+    transform_standings,
+    transform_team_statistics,
+)
 from sipap_data_mcp.database.aurora import AuroraDataClient
+
+logger = logging.getLogger(__name__)
+
+
+async def get_team_stats_api(
+    api_client: APIFootballClient,
+    team_id: int,
+    league_id: int,
+    season: int,
+) -> dict[str, Any]:
+    """Get team statistics using API-Football directly.
+
+    Args:
+        api_client: API-Football client instance
+        team_id: API-Football team ID (e.g., 50 for Manchester City)
+        league_id: API-Football league ID (e.g., 39 for Premier League)
+        season: Season year (e.g., 2026)
+
+    Returns:
+        Dictionary with "stats" key containing team statistics
+    """
+    response = await api_client.get_team_statistics(
+        team_id=team_id,
+        league_id=league_id,
+        season=season,
+    )
+
+    stats = transform_team_statistics(response)
+
+    if not stats:
+        logger.warning(f"No stats found for team {team_id} in league {league_id} season {season}")
+        return {"stats": {}}
+
+    logger.info(f"get_team_stats_api: team {team_id}, league {league_id}, season {season}")
+    return {"stats": stats}
 
 
 async def get_team_stats(
@@ -17,24 +60,21 @@ async def get_team_stats(
     team_id: int,
     league_id: int,
     season: str,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get team statistics for a specific season.
 
-    UPDATED for Phase 3: Now accepts integer IDs from API-Football.
-
-    If team_statistics table is empty for the current season (e.g., season hasn't
-    started yet or no data available), automatically falls back to computing
-    form data from the last 15 finished matches.
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
 
     Args:
-        db_client: Database client instance
+        db_client: Database client instance (fallback)
         team_id: API-Football team ID (e.g., 50 for Manchester City)
         league_id: API-Football league ID (e.g., 39 for Premier League)
         season: Season year as string (e.g., "2024" for 2024-2025 season)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         Dictionary with "stats" key containing team statistics.
-        If using fallback, includes "computed_from_matches": True and "num_matches" field.
 
     Raises:
         ValueError: If season format is invalid
@@ -47,8 +87,6 @@ async def get_team_stats(
             league_id=39,
             season="2024"
         )
-        # Returns: {"stats": {...}}
-        # OR with fallback: {"stats": {..., "computed_from_matches": True, "num_matches": 15}}
         ```
     """
     # Validate season format (YYYY)
@@ -57,7 +95,17 @@ async def get_team_stats(
             f"Invalid season format: {season}. Expected format: YYYY (e.g., 2024)"
         )
 
-    # Query team_statistics table first
+    # Use API client if available
+    if api_client is not None:
+        return await get_team_stats_api(
+            api_client=api_client,
+            team_id=team_id,
+            league_id=league_id,
+            season=int(season),
+        )
+
+    # Fallback to database
+    logger.info(f"get_team_stats: using database fallback for team {team_id}")
     stats = await db_client.get_team_stats(
         team_id=team_id, league_id=league_id, season=season
     )
@@ -66,10 +114,6 @@ async def get_team_stats(
         return {"stats": stats}
 
     # FALLBACK: team_statistics is empty - compute from recent matches
-    # This happens when:
-    # 1. Current season hasn't started yet
-    # 2. Data hasn't been backfilled for this team/league/season
-    # 3. Team is new to the league
     return await _compute_stats_from_matches(db_client, team_id)
 
 
@@ -179,19 +223,47 @@ async def _compute_stats_from_matches(
     }
 
 
+async def get_league_table_api(
+    api_client: APIFootballClient,
+    league_id: int,
+    season: int,
+) -> dict[str, Any]:
+    """Get league standings using API-Football directly.
+
+    Args:
+        api_client: API-Football client instance
+        league_id: API-Football league ID (e.g., 39 for Premier League)
+        season: Season year (e.g., 2026)
+
+    Returns:
+        Dictionary with "standings" key containing list of team standings
+    """
+    response = await api_client.get_standings(
+        league_id=league_id,
+        season=season,
+    )
+
+    standings = transform_standings(response)
+
+    logger.info(f"get_league_table_api: league {league_id} season {season}, {len(standings)} teams")
+    return {"standings": standings}
+
+
 async def get_league_table(
     db_client: AuroraDataClient,
     league_id: int,
     season: str,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get league standings/table for a specific season.
 
-    UPDATED for Phase 3: Now accepts integer league ID from API-Football.
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
 
     Args:
-        db_client: Database client instance
+        db_client: Database client instance (fallback)
         league_id: API-Football league ID (e.g., 39 for Premier League)
         season: Season year as string (e.g., "2024" for 2024-2025 season)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         Dictionary with "standings" key containing list of team standings
@@ -207,7 +279,6 @@ async def get_league_table(
             league_id=39,
             season="2024"
         )
-        # Returns: {"standings": [{"rank": 1, ...}, {"rank": 2, ...}, ...]}
         ```
     """
     # Validate season format (YYYY)
@@ -216,31 +287,68 @@ async def get_league_table(
             f"Invalid season format: {season}. Expected format: YYYY (e.g., 2024)"
         )
 
-    # Query database
+    # Use API client if available
+    if api_client is not None:
+        return await get_league_table_api(
+            api_client=api_client,
+            league_id=league_id,
+            season=int(season),
+        )
+
+    # Fallback to database
+    logger.info(f"get_league_table: using database fallback for league {league_id}")
     standings = await db_client.get_league_table(league_id=league_id, season=season)
 
     return {"standings": standings}
+
+
+async def get_head_to_head_api(
+    api_client: APIFootballClient,
+    home_team_id: int,
+    away_team_id: int,
+    last: int = 20,
+) -> dict[str, Any]:
+    """Get head-to-head statistics using API-Football directly.
+
+    Args:
+        api_client: API-Football client instance
+        home_team_id: API-Football home team ID
+        away_team_id: API-Football away team ID
+        last: Number of recent H2H matches (default: 20)
+
+    Returns:
+        Dictionary with "head_to_head" and "summary" keys
+    """
+    response = await api_client.get_h2h(
+        team1_id=home_team_id,
+        team2_id=away_team_id,
+        last=last,
+    )
+
+    h2h_data = transform_h2h(response)
+
+    logger.info(f"get_head_to_head_api: {home_team_id} vs {away_team_id}, {len(h2h_data.get('head_to_head', []))} matches")
+    return h2h_data
 
 
 async def get_head_to_head(
     db_client: AuroraDataClient,
     home_team_id: int,
     away_team_id: int,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get head-to-head statistics between two teams.
 
-    UPDATED for Phase 3: Now accepts integer team IDs from API-Football.
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
 
     Args:
-        db_client: Database client instance
+        db_client: Database client instance (fallback)
         home_team_id: API-Football home team ID (e.g., 50 for Manchester City)
         away_team_id: API-Football away team ID (e.g., 42 for Arsenal)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
-        Dictionary with "head_to_head" key containing:
-        - team_1_id, team_2_id (auto-ordered: team_1_id < team_2_id)
-        - last_10_matches (JSONB array of recent matches)
-        - team_1_wins, team_2_wins, draws
+        Dictionary with "head_to_head" key containing H2H statistics
 
     Raises:
         ValueError: If both teams are the same
@@ -252,14 +360,22 @@ async def get_head_to_head(
             home_team_id=50,
             away_team_id=42
         )
-        # Returns: {"head_to_head": {...}}
         ```
     """
     # Check if both teams are the same
     if home_team_id == away_team_id:
         raise ValueError("Cannot compare team with itself")
 
-    # Query database
+    # Use API client if available
+    if api_client is not None:
+        return await get_head_to_head_api(
+            api_client=api_client,
+            home_team_id=home_team_id,
+            away_team_id=away_team_id,
+        )
+
+    # Fallback to database
+    logger.info(f"get_head_to_head: using database fallback for {home_team_id} vs {away_team_id}")
     h2h_data = await db_client.get_head_to_head(
         home_team_id=home_team_id,
         away_team_id=away_team_id

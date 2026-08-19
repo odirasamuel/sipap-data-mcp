@@ -2,19 +2,23 @@
 Team total goals analysis tools.
 
 Analyzes home and away team goal-scoring capabilities.
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any, Literal
 import asyncpg
+from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_home_total_goals(
-    pool: asyncpg.Pool,
-    team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    team: str | int,
+    league: str | int,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze home team's goal-scoring capability (all home matches).
@@ -62,16 +66,18 @@ async def get_home_total_goals(
         venue="home",
         league=league,
         seasons_back=seasons_back,
-        current_form_matches=current_form_matches
+        current_form_matches=current_form_matches,
+        api_client=api_client,
     )
 
 
 async def get_away_total_goals(
-    pool: asyncpg.Pool,
-    team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    team: str | int,
+    league: str | int,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze away team's goal-scoring capability (all away matches).
@@ -92,17 +98,19 @@ async def get_away_total_goals(
         venue="away",
         league=league,
         seasons_back=seasons_back,
-        current_form_matches=current_form_matches
+        current_form_matches=current_form_matches,
+        api_client=api_client,
     )
 
 
 async def _get_team_total_goals(
-    pool: asyncpg.Pool,
-    team: str,
+    pool: asyncpg.Pool | None,
+    team: str | int,
     venue: Literal["home", "away"],
-    league: str,
+    league: str | int,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Internal implementation for team goal analysis.
@@ -120,15 +128,28 @@ async def _get_team_total_goals(
     """
     tool_name = f"get_{venue}_total_goals"
 
-    # Get team matches partitioned by recency
-    matches_data = await BaseStatisticalTool.get_team_matches(
-        pool=pool,
-        team=team,
-        venue=venue,
-        league=league,
-        seasons_back=seasons_back,
-        current_form_matches=current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(team, int):
+        league_id = league if isinstance(league, int) else None
+        matches_data = await BaseStatisticalTool.get_team_matches_api(
+            api_client=api_client,
+            team_id=team,
+            venue=venue,
+            league_id=league_id,
+            current_form_matches=current_form_matches,
+        )
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_team_matches(
+            pool=pool,
+            team=str(team),
+            venue=venue,
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -151,12 +172,12 @@ async def _get_team_total_goals(
             "metadata": {"seasons_analyzed": 0, "earliest_match": None, "latest_match": None, "data_quality": "low"}
         }
 
-    # Helper to get team's goals scored
+    # Helper to get team's goals scored (handles both DB and API responses)
     def get_goals_scored(match: dict[str, Any]) -> int:
         if venue == "home":
-            return match['home_score']
+            return match.get('home_score', 0) or 0
         else:
-            return match['away_score']
+            return match.get('away_score', 0) or 0
 
     # Calculate total goals
     total_matches = len(all_matches)

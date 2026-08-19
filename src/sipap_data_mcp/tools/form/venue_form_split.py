@@ -2,29 +2,37 @@
 Venue form split analysis tool.
 
 Analyzes home vs away form differences to identify venue impact.
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any
 
 import asyncpg
 
+from sipap_data_mcp.api.football_client import APIFootballClient
+
 from .base import BaseFormTool
 
 
 async def get_venue_form_split(
-    pool: asyncpg.Pool,
-    team: str,
-    league: str,
-    match_limit: int = 15
+    pool: asyncpg.Pool | None,
+    team: str | int,
+    league: str | int,
+    match_limit: int = 15,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze home vs away form differences.
 
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
     Args:
-        pool: AsyncPG connection pool
-        team: Team name to analyze
-        league: League/competition name
+        pool: AsyncPG connection pool (fallback, can be None if api_client provided)
+        team: Team name (for DB) or API-Football team ID (for API)
+        league: League name (for DB) or API-Football league ID (for API)
         match_limit: Number of recent matches to analyze per venue (default: 15)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         {
@@ -68,29 +76,55 @@ async def get_venue_form_split(
 
     Example:
         >>> result = await get_venue_form_split(
-        ...     pool, "Arsenal", "Premier League"
+        ...     pool=None, team=42, league=39, api_client=client
         ... )
         >>> print(result["data"]["comparison"]["stronger_venue"])
         "home"
-        >>> print(result["data"]["venue_advantage_rating"])
-        78
     """
-    # Get home and away matches separately
-    home_matches = await BaseFormTool.get_recent_team_matches(
-        pool=pool,
-        team=team,
-        league=league,
-        match_limit=match_limit,
-        venue="home"
-    )
+    # Determine team identifier for comparisons
+    team_identifier: str | int
+    if api_client is not None and isinstance(team, int):
+        league_id = league if isinstance(league, int) else None
+        home_matches = await BaseFormTool.get_recent_team_matches_api(
+            api_client=api_client,
+            team_id=team,
+            league_id=league_id,
+            match_limit=match_limit,
+            venue="home",
+        )
+        away_matches = await BaseFormTool.get_recent_team_matches_api(
+            api_client=api_client,
+            team_id=team,
+            league_id=league_id,
+            match_limit=match_limit,
+            venue="away",
+        )
+        team_identifier = team
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        home_matches = await BaseFormTool.get_recent_team_matches(
+            pool=pool,
+            team=str(team),
+            league=str(league),
+            match_limit=match_limit,
+            venue="home",
+        )
+        away_matches = await BaseFormTool.get_recent_team_matches(
+            pool=pool,
+            team=str(team),
+            league=str(league),
+            match_limit=match_limit,
+            venue="away",
+        )
+        team_identifier = str(team)
 
-    away_matches = await BaseFormTool.get_recent_team_matches(
-        pool=pool,
-        team=team,
-        league=league,
-        match_limit=match_limit,
-        venue="away"
-    )
+    def is_home_team(match: dict[str, Any]) -> bool:
+        """Check if our team is the home team."""
+        if isinstance(team_identifier, int):
+            return match.get('home_team_id') == team_identifier
+        return match.get('home_team') == team_identifier
 
     def analyze_venue(venue_matches: list[dict[str, Any]], _is_home_venue: bool) -> dict[str, Any]:
         """Analyze matches for a specific venue."""
@@ -113,9 +147,9 @@ async def get_venue_form_split(
         goals_conceded = 0
 
         for match in venue_matches:
-            is_home = match['home_team'] == team
-            home_score = match['home_score']
-            away_score = match['away_score']
+            is_home = is_home_team(match)
+            home_score = match.get('home_score', 0) or 0
+            away_score = match.get('away_score', 0) or 0
 
             if is_home:
                 scored = home_score
@@ -148,9 +182,9 @@ async def get_venue_form_split(
 
         form_score_points = 0
         for match in form_score_matches:
-            is_home = match['home_team'] == team
-            home_score = match['home_score']
-            away_score = match['away_score']
+            is_home = is_home_team(match)
+            home_score = match.get('home_score', 0) or 0
+            away_score = match.get('away_score', 0) or 0
 
             if is_home:
                 if home_score > away_score:

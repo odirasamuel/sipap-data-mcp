@@ -1,7 +1,11 @@
 """SIPAP Data MCP Server - Sports data & odds intelligence.
 
 Provides JSON-RPC 2.0 compliant MCP server for sports data access.
-Wraps 43 data tools with MCP protocol for AI agent communication.
+Wraps 46 data tools with MCP protocol for AI agent communication.
+
+REDESIGNED (2026-08-19): Tools now call API-Football directly with intelligent
+caching instead of querying Aurora database. This eliminates database
+inconsistency issues and provides fresher data.
 """
 
 import asyncio
@@ -14,6 +18,15 @@ from sipap_mcp import MCPServer, mcp_tool  # type: ignore[import-untyped]
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
 
+from sipap_data_mcp.api.football_client import APIFootballClient
+from sipap_data_mcp.api.transformers import (
+    calculate_form_from_fixtures,
+    transform_fixtures,
+    transform_h2h,
+    transform_odds,
+    transform_standings,
+    transform_team_statistics,
+)
 from sipap_data_mcp.cache.redis import RedisCache
 from sipap_data_mcp.database.aurora import AuroraDataClient
 from sipap_data_mcp.tools import (
@@ -86,6 +99,7 @@ class SIPAPDataMCP(MCPServer):
         db_user: str,
         db_password: str,
         redis_url: str,
+        api_football_key: str | None = None,
     ) -> None:
         """Initialize SIPAP Data MCP Server.
 
@@ -96,10 +110,11 @@ class SIPAPDataMCP(MCPServer):
             db_user: Database username
             db_password: Database password
             redis_url: Redis connection URL
+            api_football_key: API-Football API key (required for direct API access)
         """
         super().__init__(
             name="sipap-data-mcp",
-            version="1.0.0"
+            version="2.0.0"  # Bumped for API-Football redesign
         )
 
         # Store connection parameters
@@ -109,23 +124,41 @@ class SIPAPDataMCP(MCPServer):
         self._db_user = db_user
         self._db_password = db_password
         self._redis_url = redis_url
+        self._api_football_key = api_football_key
 
         # Clients (initialized in _setup)
         self.db_client: AuroraDataClient | None = None
         self.cache: RedisCache | None = None
+        self.api_client: APIFootballClient | None = None
 
     async def _setup(self) -> None:
-        """Initialize database and cache connections.
+        """Initialize API client, database and cache connections.
 
         Called automatically when server starts.
-        Establishes connections to Aurora and Redis.
+        Establishes connections to API-Football, Aurora and Redis.
         """
         logger.info(
             f"Setting up Data MCP connections - DB: {self._db_host}:{self._db_port}/{self._db_name}, "
-            f"Redis: {self._redis_url}"
+            f"Redis: {self._redis_url}, API-Football: {'configured' if self._api_football_key else 'not configured'}"
         )
 
-        # Create database client
+        # Create cache client first (needed by API client)
+        self.cache = RedisCache(url=self._redis_url)
+        await self.cache.connect()
+        logger.info("Redis cache connection established")
+
+        # Create API-Football client if key provided
+        if self._api_football_key:
+            self.api_client = APIFootballClient(
+                api_key=self._api_football_key,
+                cache=self.cache,
+            )
+            await self.api_client.connect()
+            logger.info("API-Football client connection established")
+        else:
+            logger.warning("API-Football key not provided - using database fallback")
+
+        # Create database client (fallback for tools not yet migrated)
         self.db_client = AuroraDataClient(
             host=self._db_host,
             port=self._db_port,
@@ -133,26 +166,23 @@ class SIPAPDataMCP(MCPServer):
             user=self._db_user,
             password=self._db_password,
         )
-
-        # Create cache client
-        self.cache = RedisCache(url=self._redis_url)
-
-        # Connect to both
         await self.db_client.connect()
         logger.info("Database connection established")
-
-        await self.cache.connect()
-        logger.info("Redis cache connection established")
 
         logger.info("Data MCP setup complete")
 
     async def _cleanup(self) -> None:
-        """Close database and cache connections.
+        """Close API client, database and cache connections.
 
         Called automatically when server shuts down.
         Ensures proper resource cleanup.
         """
         logger.info("Cleaning up Data MCP connections")
+
+        if self.api_client is not None:
+            await self.api_client.close()
+            self.api_client = None
+            logger.info("API-Football client connection closed")
 
         if self.db_client is not None:
             await self.db_client.close()
@@ -167,7 +197,7 @@ class SIPAPDataMCP(MCPServer):
         logger.info("Data MCP cleanup complete")
 
     def _ensure_connections(self) -> tuple[AuroraDataClient, RedisCache]:
-        """Ensure connections are established.
+        """Ensure database connections are established.
 
         Returns:
             Tuple of (db_client, cache)
@@ -178,6 +208,22 @@ class SIPAPDataMCP(MCPServer):
         if self.db_client is None or self.cache is None:
             raise RuntimeError("Server not initialized. Call _setup() first.")
         return self.db_client, self.cache
+
+    def _ensure_api_client(self) -> APIFootballClient:
+        """Ensure API-Football client is connected.
+
+        Returns:
+            API-Football client
+
+        Raises:
+            RuntimeError: If API client not initialized
+        """
+        if self.api_client is None:
+            raise RuntimeError(
+                "API-Football client not initialized. "
+                "Ensure api_football_key is provided in constructor."
+            )
+        return self.api_client
 
     def _run_async(self, coro: Coroutine[Any, Any, T]) -> T:
         """Run async coroutine synchronously using persistent event loop.
@@ -262,11 +308,13 @@ class SIPAPDataMCP(MCPServer):
     ) -> dict[str, Any]:
         """Get match schedule for specified date range.
 
+        REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
         Args:
             date_from: Start date (YYYY-MM-DD)
             date_to: End date (YYYY-MM-DD)
             status: Match status filter
-            league_id: Optional league UUID filter
+            league_id: Optional league ID filter (int for API, UUID for DB)
 
         Returns:
             Dictionary with "matches" key containing list of matches
@@ -277,8 +325,9 @@ class SIPAPDataMCP(MCPServer):
             date_from=date_from,
             date_to=date_to,
             status=status,
-            league_id=league_id)
-        )
+            league_id=league_id,
+            api_client=self.api_client,
+        ))
 
     @mcp_tool(
         description="Get detailed information for a specific match",
@@ -296,14 +345,20 @@ class SIPAPDataMCP(MCPServer):
     def get_match_details(self, match_id: str) -> dict[str, Any]:
         """Get detailed information for a specific match.
 
+        REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
         Args:
-            match_id: Match UUID
+            match_id: Match UUID or API-Football fixture ID
 
         Returns:
             Dictionary with "match" key containing match details
         """
         db_client, _ = self._ensure_connections()
-        return self._run_async(get_match_details(db_client=db_client, match_id=match_id))
+        return self._run_async(get_match_details(
+            db_client=db_client,
+            match_id=match_id,
+            api_client=self.api_client,
+        ))
 
     @mcp_tool(
         description="Get all currently live matches",
@@ -315,11 +370,16 @@ class SIPAPDataMCP(MCPServer):
     def get_live_matches(self) -> dict[str, Any]:
         """Get all currently live matches.
 
+        REDESIGNED (2026-08-19): Uses API-Football directly for real-time data.
+
         Returns:
             Dictionary with "matches" key containing list of live matches
         """
         db_client, _ = self._ensure_connections()
-        return self._run_async(get_live_matches(db_client=db_client))
+        return self._run_async(get_live_matches(
+            db_client=db_client,
+            api_client=self.api_client,
+        ))
 
     @mcp_tool(
         description="Search for matches by team name or other criteria",
@@ -337,14 +397,20 @@ class SIPAPDataMCP(MCPServer):
     def search_matches(self, query: str) -> dict[str, Any]:
         """Search for matches by team name.
 
+        REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
         Args:
-            query: Search query string
+            query: Search query string (team name)
 
         Returns:
             Dictionary with "matches" key containing matching matches
         """
         db_client, _ = self._ensure_connections()
-        return self._run_async(search_matches(db_client=db_client, query=query))
+        return self._run_async(search_matches(
+            db_client=db_client,
+            query=query,
+            api_client=self.api_client,
+        ))
 
     @mcp_tool(
         description="Search for fixtures with flexible filtering (leagues, dates, odds availability)",
@@ -400,6 +466,8 @@ class SIPAPDataMCP(MCPServer):
     ) -> dict[str, Any]:
         """Search for fixtures with flexible filtering.
 
+        REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
         Designed for batch prediction requests like "20 odds in Premier League this weekend".
         Supports league filtering by API-Football IDs (preferred) or user-friendly names (legacy).
 
@@ -426,6 +494,7 @@ class SIPAPDataMCP(MCPServer):
                 status=status,
                 has_odds=has_odds,
                 limit=limit,
+                api_client=self.api_client,
             )
         )
 
@@ -457,7 +526,7 @@ class SIPAPDataMCP(MCPServer):
     def get_team_stats(self, team_id: int, league_id: int, season: str) -> dict[str, Any]:
         """Get team statistics for a season.
 
-        UPDATED for Phase 3: Now uses integer IDs and includes Redis caching.
+        REDESIGNED (2026-08-19): Uses API-Football directly with built-in caching.
 
         Args:
             team_id: API-Football team ID (e.g., 50)
@@ -469,7 +538,17 @@ class SIPAPDataMCP(MCPServer):
         """
         db_client, cache = self._ensure_connections()
 
-        # Try cache first (6-hour TTL - stats update daily at 2 AM)
+        # If API client available, use it (has built-in caching)
+        if self.api_client is not None:
+            return self._run_async(get_team_stats(
+                db_client=db_client,
+                team_id=team_id,
+                league_id=league_id,
+                season=season,
+                api_client=self.api_client,
+            ))
+
+        # Fallback: Try cache first (6-hour TTL - stats update daily at 2 AM)
         cache_key = f"team_stats:{team_id}:{league_id}:{season}"
         cached = self._run_async(cache.get(cache_key))
         if cached:
@@ -508,7 +587,7 @@ class SIPAPDataMCP(MCPServer):
     def get_league_table(self, league_id: int, season: str) -> dict[str, Any]:
         """Get league standings/table.
 
-        UPDATED for Phase 3: Now uses integer league ID and includes Redis caching.
+        REDESIGNED (2026-08-19): Uses API-Football directly with built-in caching.
 
         Args:
             league_id: API-Football league ID (e.g., 39)
@@ -519,7 +598,16 @@ class SIPAPDataMCP(MCPServer):
         """
         db_client, cache = self._ensure_connections()
 
-        # Try cache first (6-hour TTL - standings update daily at 1 AM)
+        # If API client available, use it (has built-in caching)
+        if self.api_client is not None:
+            return self._run_async(get_league_table(
+                db_client=db_client,
+                league_id=league_id,
+                season=season,
+                api_client=self.api_client,
+            ))
+
+        # Fallback: Try cache first (6-hour TTL - standings update daily at 1 AM)
         cache_key = f"standings:{league_id}:{season}"
         cached = self._run_async(cache.get(cache_key))
         if cached:
@@ -564,7 +652,7 @@ class SIPAPDataMCP(MCPServer):
     ) -> dict[str, Any]:
         """Get head-to-head statistics between two teams.
 
-        UPDATED for Phase 3: Now uses integer team IDs and includes Redis caching.
+        REDESIGNED (2026-08-19): Uses API-Football directly with built-in caching.
 
         Args:
             home_team_id: API-Football home team ID (e.g., 50)
@@ -575,7 +663,16 @@ class SIPAPDataMCP(MCPServer):
         """
         db_client, cache = self._ensure_connections()
 
-        # Ensure correct ordering for cache key (team_1_id < team_2_id)
+        # If API client available, use it (has built-in caching)
+        if self.api_client is not None:
+            return self._run_async(get_head_to_head(
+                db_client=db_client,
+                home_team_id=home_team_id,
+                away_team_id=away_team_id,
+                api_client=self.api_client,
+            ))
+
+        # Fallback: Ensure correct ordering for cache key (team_1_id < team_2_id)
         team_a = min(home_team_id, away_team_id)
         team_b = max(home_team_id, away_team_id)
 
@@ -602,17 +699,17 @@ class SIPAPDataMCP(MCPServer):
     # ========================================================================
 
     @mcp_tool(
-        description="Query historical match data with filters",
+        description="Query historical match data (Phase 3: uses API-Football integer IDs)",
         input_schema={
             "type": "object",
             "properties": {
                 "team_id": {
-                    "type": "string",
-                    "description": "Team UUID"
+                    "type": "integer",
+                    "description": "API-Football team ID (e.g., 50 for Manchester City)"
                 },
                 "league_id": {
-                    "type": "string",
-                    "description": "Optional league UUID filter"
+                    "type": "integer",
+                    "description": "Optional API-Football league ID filter"
                 },
                 "date_from": {
                     "type": "string",
@@ -633,8 +730,8 @@ class SIPAPDataMCP(MCPServer):
     )
     def query_history(
         self,
-        team_id: str,
-        league_id: str | None = None,
+        team_id: int,
+        league_id: int | None = None,
         date_from: str | None = None,
         date_to: str | None = None,
         limit: int = 20
@@ -642,8 +739,8 @@ class SIPAPDataMCP(MCPServer):
         """Query historical match data.
 
         Args:
-            team_id: Team UUID
-            league_id: Optional league UUID filter
+            team_id: API-Football team ID (e.g., 50 for Manchester City)
+            league_id: Optional API-Football league ID filter
             date_from: Optional start date (YYYY-MM-DD)
             date_to: Optional end date (YYYY-MM-DD)
             limit: Maximum number of records
@@ -652,28 +749,34 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with historical match data
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(query_history(
             db_client=db_client,
             team_id=team_id,
             league_id=league_id,
             date_from=date_from,
             date_to=date_to,
-            limit=limit)
+            limit=limit,
+            api_client=api_client)
         )
 
     @mcp_tool(
-        description="Get team form data (recent match results)",
+        description="Get team form data (Phase 3: uses API-Football integer IDs)",
         input_schema={
             "type": "object",
             "properties": {
                 "team_id": {
-                    "type": "string",
-                    "description": "Team UUID"
+                    "type": "integer",
+                    "description": "API-Football team ID (e.g., 50 for Manchester City)"
                 },
                 "num_matches": {
                     "type": "integer",
                     "description": "Number of recent matches",
                     "default": 5
+                },
+                "league_id": {
+                    "type": "integer",
+                    "description": "Optional API-Football league ID filter"
                 }
             },
             "required": ["team_id"]
@@ -681,23 +784,28 @@ class SIPAPDataMCP(MCPServer):
     )
     def get_form_data(
         self,
-        team_id: str,
-        num_matches: int = 5
+        team_id: int,
+        num_matches: int = 5,
+        league_id: int | None = None
     ) -> dict[str, Any]:
         """Get team form data (recent results).
 
         Args:
-            team_id: Team UUID
+            team_id: API-Football team ID (e.g., 50 for Manchester City)
             num_matches: Number of recent matches
+            league_id: Optional API-Football league ID filter
 
         Returns:
             Dictionary with recent match results
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(get_form_data(
             db_client=db_client,
             team_id=team_id,
-            num_matches=num_matches)
+            num_matches=num_matches,
+            league_id=league_id,
+            api_client=api_client)
         )
 
     # ========================================================================
@@ -705,7 +813,7 @@ class SIPAPDataMCP(MCPServer):
     # ========================================================================
 
     @mcp_tool(
-        description="Get betting odds for a match (Phase 3: uses API-Football integer IDs)",
+        description="Get betting odds for a match (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
@@ -729,7 +837,7 @@ class SIPAPDataMCP(MCPServer):
     ) -> dict[str, Any]:
         """Get betting odds for a match.
 
-        UPDATED for Phase 3: Now uses integer fixture ID and includes Redis caching.
+        REDESIGNED (2026-08-19): Uses API-Football directly with Redis caching.
 
         Args:
             fixture_id: API-Football fixture ID
@@ -739,6 +847,7 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with betting odds from multiple bookmakers
         """
         db_client, cache = self._ensure_connections()
+        api_client = self._ensure_api_client()
 
         # Try cache first (5-minute TTL - odds update frequently)
         cache_key = f"odds:{fixture_id}:{'live' if is_live else 'prematch'}"
@@ -746,11 +855,12 @@ class SIPAPDataMCP(MCPServer):
         if cached:
             return cached
 
-        # Cache miss - query database
+        # Cache miss - query API or database
         result = self._run_async(get_match_odds(
             db_client=db_client,
             fixture_id=fixture_id,
-            is_live=is_live)
+            is_live=is_live,
+            api_client=api_client)
         )
 
         # Cache result for 5 minutes
@@ -759,13 +869,13 @@ class SIPAPDataMCP(MCPServer):
         return result
 
     @mcp_tool(
-        description="Track odds movements over time for a match",
+        description="Track odds movements over time (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "match_id": {
-                    "type": "string",
-                    "description": "Match UUID"
+                "fixture_id": {
+                    "type": "integer",
+                    "description": "API-Football fixture ID"
                 },
                 "time_window": {
                     "type": "string",
@@ -773,28 +883,30 @@ class SIPAPDataMCP(MCPServer):
                     "default": "24h"
                 }
             },
-            "required": ["match_id"]
+            "required": ["fixture_id"]
         }
     )
     def get_odds_movements(
         self,
-        match_id: str,
+        fixture_id: int,
         time_window: str = "24h"
     ) -> dict[str, Any] | None:
         """Get odds movement history.
 
         Args:
-            match_id: Match UUID
+            fixture_id: API-Football fixture ID
             time_window: Time window for tracking movements
 
         Returns:
             Dictionary with odds movement history or None if no data available
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(get_odds_movements(
             db_client=db_client,
-            match_id=match_id,
-            time_window=time_window)
+            fixture_id=fixture_id,
+            time_window=time_window,
+            api_client=api_client)
         )
 
     # ========================================================================
@@ -2069,30 +2181,30 @@ class SIPAPDataMCP(MCPServer):
     # ========================================================================
 
     @mcp_tool(
-        description="Detect consecutive winning/losing/drawing streaks to identify momentum",
+        description="Detect consecutive winning/losing/drawing streaks (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Team name"},
-                "league": {"type": "string", "description": "League name"},
+                "team_id": {"type": "integer", "description": "API-Football team ID"},
+                "league_id": {"type": "integer", "description": "API-Football league ID"},
                 "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches to analyze"},
                 "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
             },
-            "required": ["team", "league"]
+            "required": ["team_id", "league_id"]
         }
     )
     def get_momentum_streak(
         self,
-        team: str,
-        league: str,
+        team_id: int,
+        league_id: int,
         match_limit: int = 15,
         venue: str | None = None
     ) -> dict[str, Any]:
         """Detect consecutive result streaks (winning/losing/drawing).
 
         Args:
-            team: Team name
-            league: League name
+            team_id: API-Football team ID
+            league_id: API-Football league ID
             match_limit: Number of recent matches to analyze
             venue: Optional venue filter ("home" or "away")
 
@@ -2100,41 +2212,43 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with momentum streak analysis
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(
             form.get_momentum_streak(
-                pool=db_client._pool,
-                team=team,
-                league=league,
+                pool=db_client._pool if db_client else None,
+                team=team_id,
+                league=league_id,
                 match_limit=match_limit,
-                venue=venue
+                venue=venue,
+                api_client=api_client,
             )
         )
 
     @mcp_tool(
-        description="Compare recent vs previous form to identify improving/declining/stable patterns",
+        description="Compare recent vs previous form (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Team name"},
-                "league": {"type": "string", "description": "League name"},
+                "team_id": {"type": "integer", "description": "API-Football team ID"},
+                "league_id": {"type": "integer", "description": "API-Football league ID"},
                 "match_limit": {"type": "integer", "default": 10, "description": "Number of recent matches to analyze"},
                 "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
             },
-            "required": ["team", "league"]
+            "required": ["team_id", "league_id"]
         }
     )
     def get_form_trajectory(
         self,
-        team: str,
-        league: str,
+        team_id: int,
+        league_id: int,
         match_limit: int = 10,
         venue: str | None = None
     ) -> dict[str, Any]:
         """Analyze form trajectory (improving/declining/stable).
 
         Args:
-            team: Team name
-            league: League name
+            team_id: API-Football team ID
+            league_id: API-Football league ID
             match_limit: Number of recent matches to analyze
             venue: Optional venue filter ("home" or "away")
 
@@ -2142,41 +2256,43 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with form trajectory analysis
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(
             form.get_form_trajectory(
-                pool=db_client._pool,
-                team=team,
-                league=league,
+                pool=db_client._pool if db_client else None,
+                team=team_id,
+                league=league_id,
                 match_limit=match_limit,
-                venue=venue
+                venue=venue,
+                api_client=api_client,
             )
         )
 
     @mcp_tool(
-        description="Measure form volatility and consistency (stable vs erratic)",
+        description="Measure form volatility and consistency (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Team name"},
-                "league": {"type": "string", "description": "League name"},
+                "team_id": {"type": "integer", "description": "API-Football team ID"},
+                "league_id": {"type": "integer", "description": "API-Football league ID"},
                 "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches to analyze"},
                 "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
             },
-            "required": ["team", "league"]
+            "required": ["team_id", "league_id"]
         }
     )
     def get_consistency_score(
         self,
-        team: str,
-        league: str,
+        team_id: int,
+        league_id: int,
         match_limit: int = 15,
         venue: str | None = None
     ) -> dict[str, Any]:
         """Analyze form consistency and volatility.
 
         Args:
-            team: Team name
-            league: League name
+            team_id: API-Football team ID
+            league_id: API-Football league ID
             match_limit: Number of recent matches to analyze
             venue: Optional venue filter ("home" or "away")
 
@@ -2184,79 +2300,83 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with consistency score analysis
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(
             form.get_consistency_score(
-                pool=db_client._pool,
-                team=team,
-                league=league,
+                pool=db_client._pool if db_client else None,
+                team=team_id,
+                league=league_id,
                 match_limit=match_limit,
-                venue=venue
+                venue=venue,
+                api_client=api_client,
             )
         )
 
     @mcp_tool(
-        description="Analyze home vs away form differences to identify venue impact",
+        description="Analyze home vs away form differences (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Team name"},
-                "league": {"type": "string", "description": "League name"},
+                "team_id": {"type": "integer", "description": "API-Football team ID"},
+                "league_id": {"type": "integer", "description": "API-Football league ID"},
                 "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches per venue"}
             },
-            "required": ["team", "league"]
+            "required": ["team_id", "league_id"]
         }
     )
     def get_venue_form_split(
         self,
-        team: str,
-        league: str,
+        team_id: int,
+        league_id: int,
         match_limit: int = 15
     ) -> dict[str, Any]:
         """Analyze home vs away form differences.
 
         Args:
-            team: Team name
-            league: League name
+            team_id: API-Football team ID
+            league_id: API-Football league ID
             match_limit: Number of recent matches per venue
 
         Returns:
             Dictionary with venue form split analysis
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(
             form.get_venue_form_split(
-                pool=db_client._pool,
-                team=team,
-                league=league,
-                match_limit=match_limit
+                pool=db_client._pool if db_client else None,
+                team=team_id,
+                league=league_id,
+                match_limit=match_limit,
+                api_client=api_client,
             )
         )
 
     @mcp_tool(
-        description="Analyze goals scored trajectory (increasing/decreasing/stable)",
+        description="Analyze goals scored trajectory (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Team name"},
-                "league": {"type": "string", "description": "League name"},
+                "team_id": {"type": "integer", "description": "API-Football team ID"},
+                "league_id": {"type": "integer", "description": "API-Football league ID"},
                 "match_limit": {"type": "integer", "default": 10, "description": "Number of recent matches to analyze"},
                 "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
             },
-            "required": ["team", "league"]
+            "required": ["team_id", "league_id"]
         }
     )
     def get_goal_scoring_form_trend(
         self,
-        team: str,
-        league: str,
+        team_id: int,
+        league_id: int,
         match_limit: int = 10,
         venue: str | None = None
     ) -> dict[str, Any]:
         """Analyze goals scored trajectory (improving/declining).
 
         Args:
-            team: Team name
-            league: League name
+            team_id: API-Football team ID
+            league_id: API-Football league ID
             match_limit: Number of recent matches to analyze
             venue: Optional venue filter ("home" or "away")
 
@@ -2264,41 +2384,43 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with goal scoring form trend analysis
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(
             form.get_goal_scoring_form_trend(
-                pool=db_client._pool,
-                team=team,
-                league=league,
+                pool=db_client._pool if db_client else None,
+                team=team_id,
+                league=league_id,
                 match_limit=match_limit,
-                venue=venue
+                venue=venue,
+                api_client=api_client,
             )
         )
 
     @mcp_tool(
-        description="Analyze goals conceded trajectory (tightening/leaking/stable)",
+        description="Analyze goals conceded trajectory (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Team name"},
-                "league": {"type": "string", "description": "League name"},
+                "team_id": {"type": "integer", "description": "API-Football team ID"},
+                "league_id": {"type": "integer", "description": "API-Football league ID"},
                 "match_limit": {"type": "integer", "default": 10, "description": "Number of recent matches to analyze"},
                 "venue": {"type": "string", "enum": ["home", "away"], "description": "Optional venue filter"}
             },
-            "required": ["team", "league"]
+            "required": ["team_id", "league_id"]
         }
     )
     def get_defensive_form_trend(
         self,
-        team: str,
-        league: str,
+        team_id: int,
+        league_id: int,
         match_limit: int = 10,
         venue: str | None = None
     ) -> dict[str, Any]:
         """Analyze goals conceded trajectory (tightening/leaking).
 
         Args:
-            team: Team name
-            league: League name
+            team_id: API-Football team ID
+            league_id: API-Football league ID
             match_limit: Number of recent matches to analyze
             venue: Optional venue filter ("home" or "away")
 
@@ -2306,41 +2428,43 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with defensive form trend analysis
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(
             form.get_defensive_form_trend(
-                pool=db_client._pool,
-                team=team,
-                league=league,
+                pool=db_client._pool if db_client else None,
+                team=team_id,
+                league=league_id,
                 match_limit=match_limit,
-                venue=venue
+                venue=venue,
+                api_client=api_client,
             )
         )
 
     @mcp_tool(
-        description="Analyze form against strong opponents vs weaker opponents",
+        description="Analyze form against strong opponents (Phase 3: uses API-Football)",
         input_schema={
             "type": "object",
             "properties": {
-                "team": {"type": "string", "description": "Team name"},
-                "league": {"type": "string", "description": "League name"},
+                "team_id": {"type": "integer", "description": "API-Football team ID"},
+                "league_id": {"type": "integer", "description": "API-Football league ID"},
                 "match_limit": {"type": "integer", "default": 15, "description": "Number of recent matches to analyze"},
                 "top_team_threshold": {"type": "number", "default": 2.0, "description": "Points per match threshold for strong teams"}
             },
-            "required": ["team", "league"]
+            "required": ["team_id", "league_id"]
         }
     )
     def get_pressure_performance(
         self,
-        team: str,
-        league: str,
+        team_id: int,
+        league_id: int,
         match_limit: int = 15,
         top_team_threshold: float = 2.0
     ) -> dict[str, Any]:
         """Analyze form against strong opponents.
 
         Args:
-            team: Team name
-            league: League name
+            team_id: API-Football team ID
+            league_id: API-Football league ID
             match_limit: Number of recent matches to analyze
             top_team_threshold: Points per match threshold for strong teams
 
@@ -2348,13 +2472,15 @@ class SIPAPDataMCP(MCPServer):
             Dictionary with pressure performance analysis
         """
         db_client, _ = self._ensure_connections()
+        api_client = self._ensure_api_client()
         return self._run_async(
             form.get_pressure_performance(
-                pool=db_client._pool,
-                team=team,
-                league=league,
+                pool=db_client._pool if db_client else None,
+                team=team_id,
+                league=league_id,
                 match_limit=match_limit,
-                top_team_threshold=top_team_threshold
+                top_team_threshold=top_team_threshold,
+                api_client=api_client,
             )
         )
 

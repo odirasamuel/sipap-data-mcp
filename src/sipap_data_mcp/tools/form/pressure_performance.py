@@ -2,21 +2,26 @@
 Pressure performance analysis tool.
 
 Analyzes form against strong opponents vs weaker opponents.
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any
 
 import asyncpg
 
+from sipap_data_mcp.api.football_client import APIFootballClient
+
 from .base import BaseFormTool
 
 
 async def get_pressure_performance(
-    pool: asyncpg.Pool,
-    team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    team: str | int,
+    league: str | int,
     match_limit: int = 15,
-    top_team_threshold: float = 2.0  # Points per match threshold for "strong" teams
+    top_team_threshold: float = 2.0,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze form against strong opponents.
@@ -24,12 +29,16 @@ async def get_pressure_performance(
     Strong opponents are identified as teams averaging 2+ points per match
     in recent form (typically top 6-8 teams).
 
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
+    When using API, opponent strength is estimated from league standings.
+
     Args:
-        pool: AsyncPG connection pool
-        team: Team name to analyze
-        league: League/competition name
+        pool: AsyncPG connection pool (fallback, can be None if api_client provided)
+        team: Team name (for DB) or API-Football team ID (for API)
+        league: League name (for DB) or API-Football league ID (for API)
         match_limit: Number of recent matches to analyze (default: 15)
         top_team_threshold: Points per match threshold for "strong" teams (default: 2.0)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         {
@@ -71,21 +80,62 @@ async def get_pressure_performance(
 
     Example:
         >>> result = await get_pressure_performance(
-        ...     pool, "Arsenal", "Premier League"
+        ...     pool=None, team=42, league=39, api_client=client
         ... )
         >>> print(result["data"]["comparison"]["pressure_rating"])
         "high"
-        >>> print(result["data"]["pressure_performance_rating"])
-        72
     """
-    # Get recent matches for the team
-    matches = await BaseFormTool.get_recent_team_matches(
-        pool=pool,
-        team=team,
-        league=league,
-        match_limit=match_limit,
-        venue=None
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(team, int):
+        league_id = league if isinstance(league, int) else None
+        matches = await BaseFormTool.get_recent_team_matches_api(
+            api_client=api_client,
+            team_id=team,
+            league_id=league_id,
+            match_limit=match_limit,
+            venue=None,
+        )
+        team_identifier: str | int = team
+        use_api = True
+
+        # For API-based analysis, get standings to identify strong teams
+        strong_team_ids: set[int] = set()
+        if league_id:
+            try:
+                standings_response = await api_client.get_standings(
+                    league_id=league_id, season=2026
+                )
+                standings = standings_response.get("response", [])
+                if standings and standings[0].get("league", {}).get("standings"):
+                    league_standings = standings[0]["league"]["standings"]
+                    if league_standings and isinstance(league_standings[0], list):
+                        # Top 8 teams are "strong"
+                        for standing in league_standings[0][:8]:
+                            if standing.get("team", {}).get("id"):
+                                strong_team_ids.add(standing["team"]["id"])
+            except Exception:
+                # Fallback: no strong teams identified
+                pass
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches = await BaseFormTool.get_recent_team_matches(
+            pool=pool,
+            team=str(team),
+            league=str(league),
+            match_limit=match_limit,
+            venue=None,
+        )
+        team_identifier = str(team)
+        use_api = False
+        strong_team_ids = set()
+
+    def is_home_team(match: dict[str, Any]) -> bool:
+        """Check if our team is the home team."""
+        if isinstance(team_identifier, int):
+            return match.get('home_team_id') == team_identifier
+        return match.get('home_team') == team_identifier
 
     # Handle no data case
     if not matches:
@@ -127,53 +177,62 @@ async def get_pressure_performance(
         }
 
     # Categorize opponents as strong or weaker
-    # For simplicity, use basic heuristic: if opponent has won >60% of matches, they're "strong"
-    # In production, this could query league standings
-
     strong_opponent_matches = []
     weaker_opponent_matches = []
 
-    async with pool.acquire() as conn:
+    if use_api:
+        # API-based: use standings to identify strong teams
         for match in matches:
-            # Identify opponent
-            is_home = match['home_team'] == team
-            opponent = match['away_team'] if is_home else match['home_team']
+            is_home = is_home_team(match)
+            opponent_id = match.get('away_team_id') if is_home else match.get('home_team_id')
 
-            # Get opponent's recent form (last 10 matches)
-            opponent_query = """
-                SELECT COUNT(*) FILTER (WHERE
-                    (home_team = $1 AND home_score > away_score) OR
-                    (away_team = $1 AND away_score > home_score)
-                ) as wins,
-                COUNT(*) as total_matches
-                FROM matches
-                WHERE
-                    (home_team = $1 OR away_team = $1)
-                    AND league = $2
-                    AND status = 'finished'
-                    AND scheduled_at <= $3
-                ORDER BY scheduled_at DESC
-                LIMIT 10
-            """
-
-            opponent_stats = await conn.fetchrow(
-                opponent_query,
-                opponent,
-                league,
-                match['scheduled_at']
-            )
-
-            # Classify opponent
-            if opponent_stats and opponent_stats['total_matches'] > 0:
-                opponent_win_rate = opponent_stats['wins'] / opponent_stats['total_matches']
-                # Strong opponent = >60% win rate OR top team threshold
-                if opponent_win_rate >= 0.6:
-                    strong_opponent_matches.append(match)
-                else:
-                    weaker_opponent_matches.append(match)
+            if opponent_id in strong_team_ids:
+                strong_opponent_matches.append(match)
             else:
-                # Unknown opponent strength, classify as weaker
                 weaker_opponent_matches.append(match)
+    else:
+        # Database-based: query opponent's recent form
+        async with pool.acquire() as conn:  # type: ignore
+            for match in matches:
+                # Identify opponent
+                is_home = match['home_team'] == str(team_identifier)
+                opponent = match['away_team'] if is_home else match['home_team']
+
+                # Get opponent's recent form (last 10 matches)
+                opponent_query = """
+                    SELECT COUNT(*) FILTER (WHERE
+                        (home_team = $1 AND home_score > away_score) OR
+                        (away_team = $1 AND away_score > home_score)
+                    ) as wins,
+                    COUNT(*) as total_matches
+                    FROM matches
+                    WHERE
+                        (home_team = $1 OR away_team = $1)
+                        AND league = $2
+                        AND status = 'finished'
+                        AND scheduled_at <= $3
+                    ORDER BY scheduled_at DESC
+                    LIMIT 10
+                """
+
+                opponent_stats = await conn.fetchrow(
+                    opponent_query,
+                    opponent,
+                    str(league),
+                    match['scheduled_at']
+                )
+
+                # Classify opponent
+                if opponent_stats and opponent_stats['total_matches'] > 0:
+                    opponent_win_rate = opponent_stats['wins'] / opponent_stats['total_matches']
+                    # Strong opponent = >60% win rate OR top team threshold
+                    if opponent_win_rate >= 0.6:
+                        strong_opponent_matches.append(match)
+                    else:
+                        weaker_opponent_matches.append(match)
+                else:
+                    # Unknown opponent strength, classify as weaker
+                    weaker_opponent_matches.append(match)
 
     def analyze_matches(match_list: list[dict[str, Any]]) -> dict[str, Any]:
         """Analyze performance against a category of opponents."""
@@ -196,9 +255,9 @@ async def get_pressure_performance(
         goals_conceded = 0
 
         for match in match_list:
-            is_home = match['home_team'] == team
-            home_score = match['home_score']
-            away_score = match['away_score']
+            is_home = is_home_team(match)
+            home_score = match.get('home_score', 0) or 0
+            away_score = match.get('away_score', 0) or 0
 
             if is_home:
                 scored = home_score

@@ -108,8 +108,12 @@ def get_server() -> SIPAPDataMCP:
         redis_protocol = "rediss" if redis_ssl else "redis"
         redis_url = f"{redis_protocol}://{redis_endpoint}/0"
 
+        # Get API-Football key from environment
+        api_football_key = os.environ.get("API_FOOTBALL_KEY")
+
         logger.info(f"Connecting to database: {db_host}:{db_port}/{db_name} (user: {db_user})")
         logger.info(f"Connecting to Redis: {redis_url}")
+        logger.info(f"API-Football key: {'configured' if api_football_key else 'NOT CONFIGURED - direct API calls disabled'}")
 
         # Create server
         _server = SIPAPDataMCP(
@@ -118,7 +122,8 @@ def get_server() -> SIPAPDataMCP:
             db_name=db_name,
             db_user=db_user,
             db_password=db_password,
-            redis_url=redis_url
+            redis_url=redis_url,
+            api_football_key=api_football_key,
         )
 
         # Get persistent event loop (never closed during container lifetime)

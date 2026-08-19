@@ -6,21 +6,25 @@ Implements 8 tools for analyzing combination bets using OR and AND logic:
 - OR combinations (Win OR Goals, Win OR BTS, BTS OR Goals)
 - AND combinations (Win AND Goals, Win AND BTS, No Defeat AND Goals)
 - Avoidance markets (Avoid HT/2H defeat)
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any
 import asyncpg
+from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_double_chance(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze probability of not losing (Win OR Draw).
@@ -28,9 +32,28 @@ async def get_double_chance(
     Args:
         perspective: "home" or "away" - which team's perspective
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -45,18 +68,23 @@ async def get_double_chance(
         }
 
     def get_result(m: dict) -> str:
-        is_home = m['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home = m.get('home_team') == home_team_identifier
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
         if is_home:
-            if m['home_score'] > m['away_score']:
+            if home_score > away_score:
                 return 'home_win'
-            elif m['home_score'] < m['away_score']:
+            elif home_score < away_score:
                 return 'away_win'
             else:
                 return 'draw'
         else:
-            if m['away_score'] > m['home_score']:
+            if away_score > home_score:
                 return 'home_win'
-            elif m['away_score'] < m['home_score']:
+            elif away_score < home_score:
                 return 'away_win'
             else:
                 return 'draw'
@@ -103,23 +131,42 @@ async def get_double_chance(
 
 
 async def get_win_or_total_goals(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     goals_threshold: float = 2.5,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Team wins OR fixture produces X+ goals (OR logic).
 
     Formula: P(A OR B) = P(A) + P(B) - P(A AND B)
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
 
@@ -131,20 +178,27 @@ async def get_win_or_total_goals(
         }
 
     def team_wins(m: dict) -> bool:
-        is_home = m['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home = m.get('home_team') == home_team_identifier
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
         if perspective == "home":
             if is_home:
-                return m['home_score'] > m['away_score']
+                return home_score > away_score
             else:
-                return m['away_score'] > m['home_score']
+                return away_score > home_score
         else:
             if is_home:
-                return m['home_score'] < m['away_score']
+                return home_score < away_score
             else:
-                return m['away_score'] < m['home_score']
+                return away_score < home_score
 
     def over_goals(m: dict) -> bool:
-        return (m['home_score'] + m['away_score']) > goals_threshold
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
+        return (home_score + away_score) > goals_threshold
 
     recent = matches_data["recent_matches"]
     last_season = matches_data["last_season"]
@@ -189,23 +243,42 @@ async def get_win_or_total_goals(
 
 
 async def get_win_and_total_goals(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     goals_threshold: float = 2.5,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Team wins AND fixture produces X+ goals (AND logic).
 
     Uses actual co-occurrence count (not assuming independence).
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -220,20 +293,27 @@ async def get_win_and_total_goals(
         }
 
     def team_wins(m: dict) -> bool:
-        is_home = m['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home = m.get('home_team') == home_team_identifier
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
         if perspective == "home":
             if is_home:
-                return m['home_score'] > m['away_score']
+                return home_score > away_score
             else:
-                return m['away_score'] > m['home_score']
+                return away_score > home_score
         else:
             if is_home:
-                return m['home_score'] < m['away_score']
+                return home_score < away_score
             else:
-                return m['away_score'] < m['home_score']
+                return away_score < home_score
 
     def over_goals(m: dict) -> bool:
-        return (m['home_score'] + m['away_score']) > goals_threshold
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
+        return (home_score + away_score) > goals_threshold
 
     total = len(all_matches)
     both_true = sum(1 for m in all_matches if team_wins(m) and over_goals(m))
@@ -272,22 +352,41 @@ async def get_win_and_total_goals(
 # For brevity, I'll provide stubs that follow the same structure
 
 async def get_win_or_both_scores(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Team wins OR both teams score (OR logic).
 
     Formula: P(A OR B) = P(A) + P(B) - P(A AND B)
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -302,20 +401,27 @@ async def get_win_or_both_scores(
         }
 
     def team_wins(m: dict) -> bool:
-        is_home = m['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home = m.get('home_team') == home_team_identifier
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
         if perspective == "home":
             if is_home:
-                return m['home_score'] > m['away_score']
+                return home_score > away_score
             else:
-                return m['away_score'] > m['home_score']
+                return away_score > home_score
         else:
             if is_home:
-                return m['home_score'] < m['away_score']
+                return home_score < away_score
             else:
-                return m['away_score'] < m['home_score']
+                return away_score < home_score
 
     def both_teams_score(m: dict) -> bool:
-        return m['home_score'] > 0 and m['away_score'] > 0
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
+        return home_score > 0 and away_score > 0
 
     total = len(all_matches)
     win_only = sum(1 for m in all_matches if team_wins(m) and not both_teams_score(m))
@@ -355,22 +461,41 @@ async def get_win_or_both_scores(
 
 
 async def get_win_and_both_scores(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Team wins AND both teams score (AND logic).
 
     Uses actual co-occurrence count (not assuming independence).
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -385,20 +510,27 @@ async def get_win_and_both_scores(
         }
 
     def team_wins(m: dict) -> bool:
-        is_home = m['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home = m.get('home_team') == home_team_identifier
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
         if perspective == "home":
             if is_home:
-                return m['home_score'] > m['away_score']
+                return home_score > away_score
             else:
-                return m['away_score'] > m['home_score']
+                return away_score > home_score
         else:
             if is_home:
-                return m['home_score'] < m['away_score']
+                return home_score < away_score
             else:
-                return m['away_score'] < m['home_score']
+                return away_score < home_score
 
     def both_teams_score(m: dict) -> bool:
-        return m['home_score'] > 0 and m['away_score'] > 0
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
+        return home_score > 0 and away_score > 0
 
     total = len(all_matches)
     both_true = sum(1 for m in all_matches if team_wins(m) and both_teams_score(m))
@@ -433,22 +565,39 @@ async def get_win_and_both_scores(
 
 
 async def get_both_scores_or_multi_goals(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     goals_threshold: float = 2.5,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Both teams score OR fixture produces X+ goals (OR logic).
 
     Formula: P(A OR B) = P(A) + P(B) - P(A AND B)
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -463,10 +612,14 @@ async def get_both_scores_or_multi_goals(
         }
 
     def both_teams_score(m: dict) -> bool:
-        return m['home_score'] > 0 and m['away_score'] > 0
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
+        return home_score > 0 and away_score > 0
 
     def over_goals(m: dict) -> bool:
-        return (m['home_score'] + m['away_score']) > goals_threshold
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
+        return (home_score + away_score) > goals_threshold
 
     total = len(all_matches)
     bts_only = sum(1 for m in all_matches if both_teams_score(m) and not over_goals(m))
@@ -506,23 +659,42 @@ async def get_both_scores_or_multi_goals(
 
 
 async def get_no_defeat_and_total_goals(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     goals_threshold: float = 2.5,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Team avoids defeat (Win OR Draw) AND fixture produces X+ goals (AND logic).
 
     Uses actual co-occurrence count (not assuming independence).
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -537,18 +709,23 @@ async def get_no_defeat_and_total_goals(
         }
 
     def get_result(m: dict) -> str:
-        is_home = m['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home = m.get('home_team') == home_team_identifier
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
         if is_home:
-            if m['home_score'] > m['away_score']:
+            if home_score > away_score:
                 return 'home_win'
-            elif m['home_score'] < m['away_score']:
+            elif home_score < away_score:
                 return 'away_win'
             else:
                 return 'draw'
         else:
-            if m['away_score'] > m['home_score']:
+            if away_score > home_score:
                 return 'home_win'
-            elif m['away_score'] < m['home_score']:
+            elif away_score < home_score:
                 return 'away_win'
             else:
                 return 'draw'
@@ -561,7 +738,9 @@ async def get_no_defeat_and_total_goals(
             return result in ['away_win', 'draw']
 
     def over_goals(m: dict) -> bool:
-        return (m['home_score'] + m['away_score']) > goals_threshold
+        home_score = m.get('home_score', 0) or 0
+        away_score = m.get('away_score', 0) or 0
+        return (home_score + away_score) > goals_threshold
 
     total = len(all_matches)
     both_true = sum(1 for m in all_matches if team_avoids_defeat(m) and over_goals(m))
@@ -597,30 +776,53 @@ async def get_no_defeat_and_total_goals(
 
 
 async def get_avoid_halftime_defeat(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Probability of avoiding defeat at halftime (leading OR drawing at HT).
 
     Requires halftime data. Gracefully degrades if halftime data is missing.
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
 
-    # Filter matches with halftime data
+    # Filter matches with halftime data (handles both DB and API formats)
     def has_ht_data(m: dict) -> bool:
-        return (m.get('metadata') and
-                'halftime_home_score' in m['metadata'] and
-                'halftime_away_score' in m['metadata'])
+        if m.get('score') and m['score'].get('halftime'):
+            ht = m['score']['halftime']
+            return ht.get('home') is not None and ht.get('away') is not None
+        if m.get('metadata'):
+            return ('halftime_home_score' in m['metadata'] and
+                    'halftime_away_score' in m['metadata'])
+        return False
 
     matches_with_ht = [m for m in all_matches if has_ht_data(m)]
 
@@ -636,11 +838,25 @@ async def get_avoid_halftime_defeat(
     last_season_with_ht = [m for m in matches_data["last_season"] if has_ht_data(m)]
     older_with_ht = [m for m in matches_data["older_seasons"] if has_ht_data(m)]
 
+    def get_ht_scores(m: dict) -> tuple[int, int]:
+        """Get halftime scores (handles both DB and API formats)."""
+        if m.get('score') and m['score'].get('halftime'):
+            ht = m['score']['halftime']
+            return (ht.get('home', 0) or 0, ht.get('away', 0) or 0)
+        if m.get('metadata'):
+            return (
+                int(m['metadata'].get('halftime_home_score', 0)),
+                int(m['metadata'].get('halftime_away_score', 0))
+            )
+        return (0, 0)
+
     def get_ht_result(m: dict) -> str:
         """Get halftime result from team's perspective."""
-        is_home_actual = m['home_team'] == home_team
-        ht_home = int(m['metadata']['halftime_home_score'])
-        ht_away = int(m['metadata']['halftime_away_score'])
+        if isinstance(home_team_identifier, int):
+            is_home_actual = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home_actual = m.get('home_team') == home_team_identifier
+        ht_home, ht_away = get_ht_scores(m)
 
         if is_home_actual:
             if ht_home > ht_away:
@@ -703,30 +919,53 @@ async def get_avoid_halftime_defeat(
 
 
 async def get_avoid_2nd_half_defeat(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     perspective: str = "home",
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Probability of avoiding defeat in second-half (winning OR drawing in 2H).
 
     Requires halftime data. Gracefully degrades if halftime data is missing.
     """
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool, home_team, away_team, league, seasons_back, current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
 
-    # Filter matches with halftime data
+    # Filter matches with halftime data (handles both DB and API formats)
     def has_ht_data(m: dict) -> bool:
-        return (m.get('metadata') and
-                'halftime_home_score' in m['metadata'] and
-                'halftime_away_score' in m['metadata'])
+        if m.get('score') and m['score'].get('halftime'):
+            ht = m['score']['halftime']
+            return ht.get('home') is not None and ht.get('away') is not None
+        if m.get('metadata'):
+            return ('halftime_home_score' in m['metadata'] and
+                    'halftime_away_score' in m['metadata'])
+        return False
 
     matches_with_ht = [m for m in all_matches if has_ht_data(m)]
 
@@ -742,14 +981,28 @@ async def get_avoid_2nd_half_defeat(
     last_season_with_ht = [m for m in matches_data["last_season"] if has_ht_data(m)]
     older_with_ht = [m for m in matches_data["older_seasons"] if has_ht_data(m)]
 
+    def get_ht_scores(m: dict) -> tuple[int, int]:
+        """Get halftime scores (handles both DB and API formats)."""
+        if m.get('score') and m['score'].get('halftime'):
+            ht = m['score']['halftime']
+            return (ht.get('home', 0) or 0, ht.get('away', 0) or 0)
+        if m.get('metadata'):
+            return (
+                int(m['metadata'].get('halftime_home_score', 0)),
+                int(m['metadata'].get('halftime_away_score', 0))
+            )
+        return (0, 0)
+
     def get_2h_result(m: dict) -> str:
         """Get second-half result from team's perspective."""
-        is_home_actual = m['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home_actual = m.get('home_team_id') == home_team_identifier
+        else:
+            is_home_actual = m.get('home_team') == home_team_identifier
 
-        ht_home = int(m['metadata']['halftime_home_score'])
-        ht_away = int(m['metadata']['halftime_away_score'])
-        ft_home = m['home_score']
-        ft_away = m['away_score']
+        ht_home, ht_away = get_ht_scores(m)
+        ft_home = m.get('home_score', 0) or 0
+        ft_away = m.get('away_score', 0) or 0
 
         # Calculate second-half goals
         goals_2h_home = ft_home - ht_home

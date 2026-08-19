@@ -1,6 +1,9 @@
 """Match-related MCP tools for sports data access.
 
 Provides tools for retrieving match schedules, details, live matches, and search.
+
+REDESIGNED (2026-08-19): Now supports direct API-Football calls with intelligent caching.
+When APIFootballClient is provided, tools call API-Football directly instead of Aurora database.
 """
 
 import logging
@@ -9,6 +12,8 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from sipap_data_mcp.api.football_client import APIFootballClient
+from sipap_data_mcp.api.transformers import transform_fixtures
 from sipap_data_mcp.database.aurora import AuroraDataClient
 
 # Initialize logger for this module
@@ -34,21 +39,81 @@ def _convert_decimals_to_float(data: Any) -> Any:
         return data
 
 
+def _map_status_to_api(status: str) -> str:
+    """Map SIPAP status to API-Football status codes.
+
+    Args:
+        status: SIPAP status (scheduled, live, finished)
+
+    Returns:
+        API-Football status code(s)
+    """
+    status_map = {
+        "scheduled": "NS",  # Not Started
+        "live": "1H-2H-HT-ET-BT-P",  # All live statuses
+        "finished": "FT",  # Full Time
+    }
+    return status_map.get(status, status)
+
+
+async def get_match_schedule_api(
+    api_client: APIFootballClient,
+    date_from: str,
+    date_to: str,
+    status: str = "scheduled",
+    league_id: int | None = None,
+) -> dict[str, Any]:
+    """Get match schedule using API-Football directly.
+
+    Args:
+        api_client: API-Football client instance
+        date_from: Start date in ISO 8601 format (YYYY-MM-DD)
+        date_to: End date in ISO 8601 format (YYYY-MM-DD)
+        status: Match status filter (scheduled, live, finished)
+        league_id: Optional API-Football league ID (e.g., 39 for Premier League)
+
+    Returns:
+        Dictionary with "matches" key containing list of matches
+    """
+    # Map status to API-Football format
+    api_status = _map_status_to_api(status)
+
+    # Call API-Football
+    response = await api_client.get_fixtures(
+        league=league_id,
+        from_date=date_from,
+        to_date=date_to,
+        status=api_status,
+    )
+
+    # Transform response to MCP format
+    matches = transform_fixtures(response)
+
+    logger.info(f"get_match_schedule_api: {len(matches)} matches from API-Football")
+    return {"matches": matches}
+
+
 async def get_match_schedule(
     db_client: AuroraDataClient,
     date_from: str,
     date_to: str,
     status: str = "scheduled",
     league_id: str | None = None,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get match schedule for specified date range.
 
+    REDESIGNED (2026-08-19): Now supports API-Football direct calls.
+    If api_client is provided, calls API-Football directly.
+    Otherwise falls back to database query.
+
     Args:
-        db_client: Database client instance
+        db_client: Database client instance (fallback)
         date_from: Start date in ISO 8601 format (YYYY-MM-DD)
         date_to: End date in ISO 8601 format (YYYY-MM-DD)
         status: Match status filter (scheduled, live, finished)
-        league_id: Optional league UUID filter
+        league_id: Optional league filter (UUID for DB, int for API)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         Dictionary with "matches" key containing list of matches
@@ -68,7 +133,27 @@ async def get_match_schedule(
         # Returns: {"matches": [...]}
         ```
     """
-    # Query database
+    # Use API client if available
+    if api_client is not None:
+        # Convert league_id to int if it looks like an API-Football ID
+        api_league_id = None
+        if league_id is not None:
+            try:
+                api_league_id = int(league_id)
+            except ValueError:
+                # It's a UUID or name, can't use directly with API
+                logger.warning(f"league_id '{league_id}' is not an integer, skipping API league filter")
+
+        return await get_match_schedule_api(
+            api_client=api_client,
+            date_from=date_from,
+            date_to=date_to,
+            status=status,
+            league_id=api_league_id,
+        )
+
+    # Fallback to database
+    logger.info("get_match_schedule: using database fallback")
     matches = await db_client.get_matches(
         date_from=date_from,
         date_to=date_to,
@@ -79,21 +164,50 @@ async def get_match_schedule(
     return {"matches": matches}
 
 
+async def get_match_details_api(
+    api_client: APIFootballClient,
+    fixture_id: int,
+) -> dict[str, Any]:
+    """Get match details using API-Football directly.
+
+    Args:
+        api_client: API-Football client instance
+        fixture_id: API-Football fixture ID
+
+    Returns:
+        Dictionary with "match" key containing match details
+    """
+    response = await api_client.get_fixture_by_id(fixture_id)
+    matches = transform_fixtures(response)
+
+    if not matches:
+        raise ValueError(f"Fixture not found: {fixture_id}")
+
+    logger.info(f"get_match_details_api: found fixture {fixture_id}")
+    return {"match": matches[0]}
+
+
 async def get_match_details(
     db_client: AuroraDataClient,
     match_id: str,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get detailed information for a specific match.
 
+    REDESIGNED (2026-08-19): Supports API-Football direct calls.
+    If match_id is an integer (API-Football fixture ID) and api_client is provided,
+    calls API-Football directly.
+
     Args:
-        db_client: Database client instance
-        match_id: Match UUID
+        db_client: Database client instance (fallback)
+        match_id: Match UUID or API-Football fixture ID (integer string)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         Dictionary with "match" key containing match details
 
     Raises:
-        ValueError: If match_id is not a valid UUID or match not found
+        ValueError: If match_id is not valid or match not found
 
     Example:
         ```python
@@ -104,11 +218,20 @@ async def get_match_details(
         # Returns: {"match": {...}}
         ```
     """
-    # Validate UUID format
+    # Check if match_id is an integer (API-Football fixture ID)
+    if api_client is not None:
+        try:
+            fixture_id = int(match_id)
+            return await get_match_details_api(api_client, fixture_id)
+        except ValueError:
+            # Not an integer, might be a UUID - continue to DB fallback
+            pass
+
+    # Fallback to database - validate UUID format
     try:
         UUID(match_id)
     except ValueError as e:
-        raise ValueError(f"Invalid UUID: {match_id}") from e
+        raise ValueError(f"Invalid match ID: {match_id}") from e
 
     # Query database for single match
     match = await db_client.get_match(match_id=match_id)
@@ -119,13 +242,36 @@ async def get_match_details(
     return {"match": match}
 
 
+async def get_live_matches_api(
+    api_client: APIFootballClient,
+) -> dict[str, Any]:
+    """Get live matches using API-Football directly.
+
+    Args:
+        api_client: API-Football client instance
+
+    Returns:
+        Dictionary with "matches" key containing list of live matches
+    """
+    response = await api_client.get_live_fixtures()
+    matches = transform_fixtures(response)
+
+    logger.info(f"get_live_matches_api: {len(matches)} live matches from API-Football")
+    return {"matches": matches}
+
+
 async def get_live_matches(
     db_client: AuroraDataClient,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get all currently live matches.
 
+    REDESIGNED (2026-08-19): Supports API-Football direct calls for real-time data.
+    API-Football provides more accurate live match data with real-time updates.
+
     Args:
-        db_client: Database client instance
+        db_client: Database client instance (fallback)
+        api_client: Optional API-Football client (preferred for live data)
 
     Returns:
         Dictionary with "matches" key containing list of live matches
@@ -136,12 +282,16 @@ async def get_live_matches(
         # Returns: {"matches": [...]}
         ```
     """
-    # Get today's date range (live matches should be today)
+    # Use API client for live matches (more accurate real-time data)
+    if api_client is not None:
+        return await get_live_matches_api(api_client)
+
+    # Fallback to database
+    logger.info("get_live_matches: using database fallback")
     now = datetime.now(UTC)
     date_from = now.date().isoformat()
     date_to = (now.date() + timedelta(days=1)).isoformat()
 
-    # Query database for live matches
     matches = await db_client.get_matches(
         date_from=date_from,
         date_to=date_to,
@@ -152,15 +302,61 @@ async def get_live_matches(
     return {"matches": matches}
 
 
+async def search_matches_api(
+    api_client: APIFootballClient,
+    query: str,
+) -> dict[str, Any]:
+    """Search for matches using API-Football.
+
+    Searches for teams matching the query and returns their recent fixtures.
+
+    Args:
+        api_client: API-Football client instance
+        query: Search query string (team name)
+
+    Returns:
+        Dictionary with "matches" key containing list of matching matches
+    """
+    # First search for teams matching the query
+    teams_response = await api_client.get_teams(search=query)
+    teams = teams_response.get("response", [])
+
+    if not teams:
+        logger.info(f"search_matches_api: no teams found for '{query}'")
+        return {"matches": []}
+
+    # Get fixtures for the first matching team
+    team_id = teams[0].get("team", {}).get("id")
+    if not team_id:
+        return {"matches": []}
+
+    # Get recent fixtures for this team
+    fixtures_response = await api_client.get_fixtures(
+        team=team_id,
+        last=100,  # Last 100 fixtures
+    )
+
+    matches = transform_fixtures(fixtures_response)
+    logger.info(f"search_matches_api: {len(matches)} matches for team '{query}' (ID: {team_id})")
+
+    return {"matches": matches}
+
+
 async def search_matches(
     db_client: AuroraDataClient,
     query: str,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Search for matches by team name or other criteria.
 
+    REDESIGNED (2026-08-19): Supports API-Football direct calls.
+    API-Football search is team-based - finds teams matching the query
+    and returns their recent fixtures.
+
     Args:
-        db_client: Database client instance
-        query: Search query string
+        db_client: Database client instance (fallback)
+        query: Search query string (team name)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         Dictionary with "matches" key containing list of matching matches
@@ -181,7 +377,12 @@ async def search_matches(
     if not query or query.strip() == "":
         raise ValueError("Query cannot be empty")
 
-    # Query database
+    # Use API client if available
+    if api_client is not None:
+        return await search_matches_api(api_client, query)
+
+    # Fallback to database
+    logger.info(f"search_matches: using database fallback for query '{query}'")
     matches = await db_client.search_matches(query=query)
 
     return {"matches": matches}
@@ -241,6 +442,82 @@ def map_league_name_to_id(league_name: str) -> str | None:
     return canonical_name
 
 
+async def search_fixtures_api(
+    api_client: APIFootballClient,
+    league_ids: list[int] | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    status: str = "scheduled",
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Search for fixtures using API-Football directly.
+
+    Args:
+        api_client: API-Football client instance
+        league_ids: List of API-Football league IDs
+        date_from: Start date (YYYY-MM-DD)
+        date_to: End date (YYYY-MM-DD)
+        status: Match status (scheduled, live, finished)
+        limit: Maximum fixtures to return
+
+    Returns:
+        Dictionary with fixtures, count, and filters_applied
+    """
+    # Apply date defaults
+    if date_from is None:
+        date_from = datetime.now(UTC).date().isoformat()
+    if date_to is None:
+        date_to = (datetime.now(UTC).date() + timedelta(days=7)).isoformat()
+
+    # Map status
+    api_status = _map_status_to_api(status)
+
+    all_fixtures: list[dict[str, Any]] = []
+
+    if league_ids:
+        # Query each league
+        for league_id in league_ids:
+            response = await api_client.get_fixtures(
+                league=league_id,
+                from_date=date_from,
+                to_date=date_to,
+                status=api_status,
+            )
+            fixtures = transform_fixtures(response)
+            logger.info(f"search_fixtures_api: League {league_id} returned {len(fixtures)} fixtures")
+            all_fixtures.extend(fixtures)
+    else:
+        # Get current season from today's year
+        season = datetime.now().year
+
+        # Without league filter, API-Football requires date parameter
+        # Query by date range
+        response = await api_client.get_fixtures(
+            date=date_from,  # Get fixtures for start date
+            status=api_status,
+        )
+        fixtures = transform_fixtures(response)
+        all_fixtures.extend(fixtures)
+
+        logger.info(f"search_fixtures_api: Date {date_from} returned {len(fixtures)} fixtures")
+
+    # Apply limit
+    limited_fixtures = all_fixtures[:limit]
+
+    return {
+        "fixtures": limited_fixtures,
+        "count": len(limited_fixtures),
+        "filters_applied": {
+            "league_ids": league_ids,
+            "date_from": date_from,
+            "date_to": date_to,
+            "status": status,
+            "limit": limit,
+            "source": "api_football",
+        }
+    }
+
+
 async def search_fixtures(
     db_client: AuroraDataClient,
     league_ids: list[int] | None = None,
@@ -250,8 +527,12 @@ async def search_fixtures(
     status: str = "scheduled",
     has_odds: bool = True,
     limit: int = 100,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Search for fixtures with flexible filtering.
+
+    REDESIGNED (2026-08-19): Supports API-Football direct calls.
+    When api_client is provided, calls API-Football directly for fresher data.
 
     This tool provides advanced fixture search with:
     - League filtering by API-Football IDs (preferred) or user-friendly names
@@ -265,19 +546,18 @@ async def search_fixtures(
     - league_ids: [140, 39] → La Liga (Spain), Premier League (England)
     - Eliminates string matching ambiguity (e.g., "Premier League" exists in multiple countries)
 
-    Designed for batch prediction requests like "20 odds in Premier League this weekend".
-
     Args:
-        db_client: Database client instance
+        db_client: Database client instance (fallback)
         league_ids: List of API-Football league IDs (e.g., [140, 39] for La Liga, Premier League)
-                   PREFERRED - Use IDs for unambiguous resolution. These map to external_id in DB.
+                   PREFERRED - Use IDs for unambiguous resolution.
         league_names: LEGACY - List of user-friendly league names (e.g., ["Premier League", "LaLiga"])
-                     Only used if league_ids is not provided. Maps variations like "EPL" → "Premier League"
+                     Only used if league_ids is not provided.
         date_from: Start date in ISO 8601 format (YYYY-MM-DD). Defaults to today.
         date_to: End date in ISO 8601 format (YYYY-MM-DD). Defaults to today + 7 days.
         status: Match status filter (scheduled, live, finished). Default: "scheduled"
         has_odds: Only return matches with bookmaker odds available. Default: True
         limit: Maximum number of fixtures to return. Default: 100
+        api_client: Optional API-Football client (preferred for direct API calls)
 
     Returns:
         Dictionary with:
@@ -285,33 +565,14 @@ async def search_fixtures(
         - "count": Number of fixtures returned
         - "filters_applied": Dictionary showing what filters were used
 
-    Raises:
-        ValueError: If date format is invalid
-        RuntimeError: If database connection fails
-
     Example:
         ```python
-        # NEW: Using API-Football IDs (preferred)
         result = await search_fixtures(
             db_client=client,
+            api_client=api,
             league_ids=[140, 39],  # La Liga + Premier League
             date_from="2026-08-03",
             date_to="2026-08-10"
-        )
-
-        # LEGACY: Using league names (still supported)
-        result = await search_fixtures(
-            db_client=client,
-            league_names=["Premier League", "LaLiga"],
-            date_from="2026-08-03",
-            date_to="2026-08-10"
-        )
-
-        # All fixtures (including without odds)
-        result = await search_fixtures(
-            db_client=client,
-            has_odds=False,
-            limit=50
         )
         ```
     """
@@ -325,8 +586,20 @@ async def search_fixtures(
             "status": status,
             "has_odds": has_odds,
             "limit": limit,
+            "api_client": "provided" if api_client else "not provided",
         }
     )
+
+    # Use API client if available and league_ids provided
+    if api_client is not None and league_ids:
+        return await search_fixtures_api(
+            api_client=api_client,
+            league_ids=league_ids,
+            date_from=date_from,
+            date_to=date_to,
+            status=status,
+            limit=limit,
+        )
 
     # Apply date defaults
     if date_from is None:

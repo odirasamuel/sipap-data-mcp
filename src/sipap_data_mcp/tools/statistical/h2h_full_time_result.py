@@ -2,31 +2,38 @@
 Head-to-head full-time result analysis tool.
 
 Analyzes win/draw/loss record between two teams with recency weighting.
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any
 import asyncpg
+from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_h2h_full_time_result(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze head-to-head full-time result record.
 
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
     Args:
-        pool: AsyncPG connection pool
-        home_team: Home team name
-        away_team: Away team name
-        league: League/competition name
+        pool: AsyncPG connection pool (fallback, can be None if api_client provided)
+        home_team: Home team name (for DB) or API-Football team ID (for API)
+        away_team: Away team name (for DB) or API-Football team ID (for API)
+        league: League name (for DB) or API-Football league ID (for API)
         seasons_back: Historical seasons to analyze (default: 6)
         current_form_matches: Recent matches for current form (default: 10)
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         {
@@ -77,15 +84,28 @@ async def get_h2h_full_time_result(
         >>> print(result["data"]["weighted_probabilities"]["home_win"])
         0.4200
     """
-    # Get matches partitioned by recency
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool=pool,
-        home_team=home_team,
-        away_team=away_team,
-        league=league,
-        seasons_back=seasons_back,
-        current_form_matches=current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier: str | int = home_team
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
+        home_team_identifier = str(home_team)
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -134,7 +154,10 @@ async def get_h2h_full_time_result(
         Accounts for reversed fixtures (home_team might be away in this match).
         """
         # Check if our "home team" is actually playing at home in this match
-        is_home = match['home_team'] == home_team
+        if isinstance(home_team_identifier, int):
+            is_home = match.get('home_team_id') == home_team_identifier
+        else:
+            is_home = match.get('home_team') == home_team_identifier
 
         home_score = match['home_score']
         away_score = match['away_score']

@@ -6,12 +6,19 @@ Provides:
 - FormTrendCalculator: Detect improving/declining/stable patterns
 - ConsistencyAnalyzer: Measure form volatility
 - BaseFormTool: Common database query patterns for recent form analysis
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
+import logging
 import statistics
 from typing import Any, Literal
 
 import asyncpg
+
+from sipap_data_mcp.api.football_client import APIFootballClient
+
+logger = logging.getLogger(__name__)
 
 
 class FormWeightCalculator:
@@ -251,7 +258,126 @@ class BaseFormTool:
     - Common database query logic for recent matches
     - Form-specific match filtering (last 10-15 matches)
     - Venue-specific queries (home/away split)
+    - API-Football integration (2026-08-19)
     """
+
+    @staticmethod
+    async def get_recent_team_matches_api(
+        api_client: APIFootballClient,
+        team_id: int,
+        league_id: int | None = None,
+        match_limit: int = 15,
+        venue: Literal["home", "away"] | None = None
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieve recent matches for a team using API-Football.
+
+        Args:
+            api_client: API-Football client instance
+            team_id: API-Football team ID
+            league_id: Optional league ID filter
+            match_limit: Number of recent matches (default: 15)
+            venue: Optional venue filter ("home" or "away")
+
+        Returns:
+            List of recent matches ordered by date DESC
+        """
+        params: dict[str, Any] = {
+            "team": team_id,
+            "status": "FT",  # Only finished matches
+            "last": match_limit,
+        }
+
+        if league_id is not None:
+            params["league"] = league_id
+
+        response = await api_client.get_fixtures(**params)
+
+        # Transform fixtures to form tool format
+        matches = []
+        for item in response.get("response", []):
+            fixture = item.get("fixture", {})
+            teams = item.get("teams", {})
+            goals = item.get("goals", {})
+
+            home_team_id = teams.get("home", {}).get("id")
+            away_team_id = teams.get("away", {}).get("id")
+
+            # Filter by venue if specified
+            if venue == "home" and home_team_id != team_id:
+                continue
+            if venue == "away" and away_team_id != team_id:
+                continue
+
+            matches.append({
+                "id": fixture.get("id"),
+                "scheduled_at": fixture.get("date"),
+                "home_team": teams.get("home", {}).get("name"),
+                "away_team": teams.get("away", {}).get("name"),
+                "home_team_id": home_team_id,
+                "away_team_id": away_team_id,
+                "home_score": goals.get("home"),
+                "away_score": goals.get("away"),
+                "status": "finished",
+                "league": item.get("league", {}).get("name"),
+            })
+
+        logger.info(
+            f"get_recent_team_matches_api: team {team_id}, "
+            f"league {league_id}, venue {venue}, found {len(matches)} matches"
+        )
+        return matches
+
+    @staticmethod
+    async def get_recent_h2h_matches_api(
+        api_client: APIFootballClient,
+        home_team_id: int,
+        away_team_id: int,
+        match_limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """
+        Retrieve recent head-to-head matches using API-Football.
+
+        Args:
+            api_client: API-Football client instance
+            home_team_id: API-Football home team ID
+            away_team_id: API-Football away team ID
+            match_limit: Number of recent matches (default: 10)
+
+        Returns:
+            List of recent h2h matches ordered by date DESC
+        """
+        response = await api_client.get_h2h(
+            team1_id=home_team_id,
+            team2_id=away_team_id,
+            last=match_limit,
+        )
+
+        # Transform fixtures to form tool format
+        matches = []
+        for item in response.get("response", []):
+            fixture = item.get("fixture", {})
+            teams = item.get("teams", {})
+            goals = item.get("goals", {})
+
+            matches.append({
+                "id": fixture.get("id"),
+                "scheduled_at": fixture.get("date"),
+                "home_team": teams.get("home", {}).get("name"),
+                "away_team": teams.get("away", {}).get("name"),
+                "home_team_id": teams.get("home", {}).get("id"),
+                "away_team_id": teams.get("away", {}).get("id"),
+                "home_score": goals.get("home"),
+                "away_score": goals.get("away"),
+                "status": "finished",
+                "league": item.get("league", {}).get("name"),
+            })
+
+        logger.info(
+            f"get_recent_h2h_matches_api: {home_team_id} vs {away_team_id}, "
+            f"found {len(matches)} matches"
+        )
+        return matches
 
     @staticmethod
     async def get_recent_team_matches(

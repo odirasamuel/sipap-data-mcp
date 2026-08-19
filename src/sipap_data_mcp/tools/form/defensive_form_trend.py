@@ -2,31 +2,39 @@
 Defensive form trend analysis tool.
 
 Analyzes goals conceded trajectory to identify defensive form patterns.
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any, Literal
 
 import asyncpg
 
+from sipap_data_mcp.api.football_client import APIFootballClient
+
 from .base import BaseFormTool
 
 
 async def get_defensive_form_trend(
-    pool: asyncpg.Pool,
-    team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    team: str | int,
+    league: str | int,
     match_limit: int = 10,
-    venue: Literal["home", "away"] | None = None
+    venue: Literal["home", "away"] | None = None,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze goals conceded trajectory (tightening/leaking).
 
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
     Args:
-        pool: AsyncPG connection pool
-        team: Team name to analyze
-        league: League/competition name
+        pool: AsyncPG connection pool (fallback, can be None if api_client provided)
+        team: Team name (for DB) or API-Football team ID (for API)
+        league: League name (for DB) or API-Football league ID (for API)
         match_limit: Number of recent matches to analyze (default: 10)
         venue: Optional venue filter ("home" or "away")
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         {
@@ -62,21 +70,40 @@ async def get_defensive_form_trend(
 
     Example:
         >>> result = await get_defensive_form_trend(
-        ...     pool, "Arsenal", "Premier League"
+        ...     pool=None, team=42, league=39, api_client=client
         ... )
         >>> print(result["data"]["trend"])
         "tightening"
-        >>> print(result["data"]["comparison"]["avg_change"])
-        -0.6  # Negative = improvement
     """
-    # Get recent matches
-    matches = await BaseFormTool.get_recent_team_matches(
-        pool=pool,
-        team=team,
-        league=league,
-        match_limit=match_limit,
-        venue=venue
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(team, int):
+        league_id = league if isinstance(league, int) else None
+        matches = await BaseFormTool.get_recent_team_matches_api(
+            api_client=api_client,
+            team_id=team,
+            league_id=league_id,
+            match_limit=match_limit,
+            venue=venue,
+        )
+        team_identifier: str | int = team
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches = await BaseFormTool.get_recent_team_matches(
+            pool=pool,
+            team=str(team),
+            league=str(league),
+            match_limit=match_limit,
+            venue=venue,
+        )
+        team_identifier = str(team)
+
+    def is_home_team(match: dict[str, Any]) -> bool:
+        """Check if our team is the home team."""
+        if isinstance(team_identifier, int):
+            return match.get('home_team_id') == team_identifier
+        return match.get('home_team') == team_identifier
 
     # Handle no data case
     if not matches:
@@ -129,8 +156,10 @@ async def get_defensive_form_trend(
         clean_sheets = 0
 
         for match in period_matches:
-            is_home = match['home_team'] == team
-            conceded = match['away_score'] if is_home else match['home_score']
+            is_home = is_home_team(match)
+            home_score = match.get('home_score', 0) or 0
+            away_score = match.get('away_score', 0) or 0
+            conceded = away_score if is_home else home_score
             goals_conceded.append(conceded)
 
             if conceded == 0:
@@ -171,8 +200,10 @@ async def get_defensive_form_trend(
     # Find current clean sheet streak
     clean_sheet_streak = 0
     for match in matches:
-        is_home = match['home_team'] == team
-        conceded = match['away_score'] if is_home else match['home_score']
+        is_home = is_home_team(match)
+        home_score = match.get('home_score', 0) or 0
+        away_score = match.get('away_score', 0) or 0
+        conceded = away_score if is_home else home_score
 
         if conceded == 0:
             clean_sheet_streak += 1

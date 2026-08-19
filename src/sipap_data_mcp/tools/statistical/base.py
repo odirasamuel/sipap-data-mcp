@@ -5,11 +5,18 @@ Provides:
 - RecencyWeightCalculator: Apply 50/30/20 weighting to recent/last season/older data
 - DataQualityClassifier: Assess data quality based on sample size
 - BaseStatisticalTool: Common database query patterns for h2h and team matches
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
+import logging
 from typing import Any, Literal, Callable
 from datetime import datetime
 import asyncpg
+
+from sipap_data_mcp.api.football_client import APIFootballClient
+
+logger = logging.getLogger(__name__)
 
 
 class RecencyWeightCalculator:
@@ -117,7 +124,206 @@ class BaseStatisticalTool:
     - Season partitioning (recent/last/older)
     - H2H match filtering
     - Team-specific match filtering
+    - API-Football integration (2026-08-19)
     """
+
+    @staticmethod
+    async def get_h2h_matches_api(
+        api_client: APIFootballClient,
+        home_team_id: int,
+        away_team_id: int,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """
+        Retrieve head-to-head matches using API-Football.
+
+        Args:
+            api_client: API-Football client instance
+            home_team_id: API-Football home team ID
+            away_team_id: API-Football away team ID
+            current_form_matches: Recent matches for "current form" (default: 10)
+
+        Returns:
+            Same structure as get_h2h_matches
+        """
+        # API-Football returns up to 50 H2H matches
+        response = await api_client.get_h2h(
+            team1_id=home_team_id,
+            team2_id=away_team_id,
+            last=50,
+        )
+
+        # Transform fixtures to match format
+        all_matches = []
+        for item in response.get("response", []):
+            fixture = item.get("fixture", {})
+            teams = item.get("teams", {})
+            goals = item.get("goals", {})
+            date_str = fixture.get("date", "")
+
+            # Parse year from date
+            season_year = None
+            if date_str:
+                try:
+                    dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    season_year = dt.year
+                except ValueError:
+                    pass
+
+            all_matches.append({
+                "id": fixture.get("id"),
+                "scheduled_at": date_str,
+                "home_team": teams.get("home", {}).get("name"),
+                "away_team": teams.get("away", {}).get("name"),
+                "home_team_id": teams.get("home", {}).get("id"),
+                "away_team_id": teams.get("away", {}).get("id"),
+                "home_score": goals.get("home"),
+                "away_score": goals.get("away"),
+                "status": "finished",
+                "season_year": season_year,
+            })
+
+        if not all_matches:
+            return {
+                "all_matches": [],
+                "recent_matches": [],
+                "last_season": [],
+                "older_seasons": [],
+                "seasons_analyzed": 0,
+                "earliest_match": None,
+                "latest_match": None,
+            }
+
+        # Partition by recency
+        recent_matches = all_matches[:current_form_matches]
+
+        current_year = datetime.now().year
+        last_season = [m for m in all_matches if m.get('season_year') == current_year - 1]
+        older_seasons = [m for m in all_matches if m.get('season_year') and m['season_year'] < current_year - 1]
+
+        seasons = {m['season_year'] for m in all_matches if m.get('season_year')}
+        dates = [m['scheduled_at'] for m in all_matches if m.get('scheduled_at')]
+
+        logger.info(
+            f"get_h2h_matches_api: {home_team_id} vs {away_team_id}, "
+            f"{len(all_matches)} matches"
+        )
+
+        return {
+            "all_matches": all_matches,
+            "recent_matches": recent_matches,
+            "last_season": last_season,
+            "older_seasons": older_seasons,
+            "seasons_analyzed": len(seasons),
+            "earliest_match": min(dates) if dates else None,
+            "latest_match": max(dates) if dates else None,
+        }
+
+    @staticmethod
+    async def get_team_matches_api(
+        api_client: APIFootballClient,
+        team_id: int,
+        venue: Literal["home", "away"] | None,
+        league_id: int | None = None,
+        current_form_matches: int = 10
+    ) -> dict[str, Any]:
+        """
+        Retrieve team matches using API-Football.
+
+        Args:
+            api_client: API-Football client instance
+            team_id: API-Football team ID
+            venue: "home" or "away" (or None for all)
+            league_id: Optional league ID filter
+            current_form_matches: Recent matches for current form (default: 10)
+
+        Returns:
+            Same structure as get_team_matches
+        """
+        params: dict[str, Any] = {
+            "team": team_id,
+            "status": "FT",
+            "last": 50,
+        }
+
+        if league_id:
+            params["league"] = league_id
+
+        response = await api_client.get_fixtures(**params)
+
+        # Transform and filter by venue
+        all_matches = []
+        for item in response.get("response", []):
+            fixture = item.get("fixture", {})
+            teams = item.get("teams", {})
+            goals = item.get("goals", {})
+            date_str = fixture.get("date", "")
+
+            home_team_id = teams.get("home", {}).get("id")
+            is_home = home_team_id == team_id
+
+            # Filter by venue if specified
+            if venue == "home" and not is_home:
+                continue
+            if venue == "away" and is_home:
+                continue
+
+            season_year = None
+            if date_str:
+                try:
+                    dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                    season_year = dt.year
+                except ValueError:
+                    pass
+
+            all_matches.append({
+                "id": fixture.get("id"),
+                "scheduled_at": date_str,
+                "home_team": teams.get("home", {}).get("name"),
+                "away_team": teams.get("away", {}).get("name"),
+                "home_team_id": home_team_id,
+                "away_team_id": teams.get("away", {}).get("id"),
+                "home_score": goals.get("home"),
+                "away_score": goals.get("away"),
+                "status": "finished",
+                "season_year": season_year,
+            })
+
+        if not all_matches:
+            return {
+                "all_matches": [],
+                "recent_matches": [],
+                "last_season": [],
+                "older_seasons": [],
+                "seasons_analyzed": 0,
+                "earliest_match": None,
+                "latest_match": None,
+            }
+
+        # Partition by recency
+        recent_matches = all_matches[:current_form_matches]
+
+        current_year = datetime.now().year
+        last_season = [m for m in all_matches if m.get('season_year') == current_year - 1]
+        older_seasons = [m for m in all_matches if m.get('season_year') and m['season_year'] < current_year - 1]
+
+        seasons = {m['season_year'] for m in all_matches if m.get('season_year')}
+        dates = [m['scheduled_at'] for m in all_matches if m.get('scheduled_at')]
+
+        logger.info(
+            f"get_team_matches_api: team {team_id}, venue {venue}, "
+            f"{len(all_matches)} matches"
+        )
+
+        return {
+            "all_matches": all_matches,
+            "recent_matches": recent_matches,
+            "last_season": last_season,
+            "older_seasons": older_seasons,
+            "seasons_analyzed": len(seasons),
+            "earliest_match": min(dates) if dates else None,
+            "latest_match": max(dates) if dates else None,
+        }
 
     @staticmethod
     async def get_h2h_matches(

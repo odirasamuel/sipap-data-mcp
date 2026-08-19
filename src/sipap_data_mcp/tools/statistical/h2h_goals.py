@@ -2,20 +2,24 @@
 Head-to-head goals analysis tool.
 
 Analyzes total goals produced in h2h fixtures with over/under thresholds.
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any
 import asyncpg
+from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_h2h_goals(
-    pool: asyncpg.Pool,
-    home_team: str,
-    away_team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    home_team: str | int,
+    away_team: str | int,
+    league: str | int,
     seasons_back: int = 6,
-    current_form_matches: int = 10
+    current_form_matches: int = 10,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze total goals produced in head-to-head fixtures.
@@ -60,15 +64,26 @@ async def get_h2h_goals(
             "metadata": {...}
         }
     """
-    # Get matches partitioned by recency
-    matches_data = await BaseStatisticalTool.get_h2h_matches(
-        pool=pool,
-        home_team=home_team,
-        away_team=away_team,
-        league=league,
-        seasons_back=seasons_back,
-        current_form_matches=current_form_matches
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
+        matches_data = await BaseStatisticalTool.get_h2h_matches_api(
+            api_client=api_client,
+            home_team_id=home_team,
+            away_team_id=away_team,
+            current_form_matches=current_form_matches,
+        )
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches_data = await BaseStatisticalTool.get_h2h_matches(
+            pool=pool,
+            home_team=str(home_team),
+            away_team=str(away_team),
+            league=str(league),
+            seasons_back=seasons_back,
+            current_form_matches=current_form_matches,
+        )
 
     all_matches = matches_data["all_matches"]
     recent = matches_data["recent_matches"]
@@ -95,9 +110,11 @@ async def get_h2h_goals(
             }
         }
 
-    # Helper to get total goals
+    # Helper to get total goals (handles both DB and API responses)
     def get_total_goals(match: dict[str, Any]) -> int:
-        return match['home_score'] + match['away_score']
+        home_score = match.get('home_score', 0) or 0
+        away_score = match.get('away_score', 0) or 0
+        return home_score + away_score
 
     # Calculate total goals
     total_matches = len(all_matches)

@@ -2,31 +2,39 @@
 Consistency score analysis tool.
 
 Measures form volatility and consistency using statistical analysis.
+
+REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
 """
 
 from typing import Any, Literal
 
 import asyncpg
 
+from sipap_data_mcp.api.football_client import APIFootballClient
+
 from .base import BaseFormTool, ConsistencyAnalyzer
 
 
 async def get_consistency_score(
-    pool: asyncpg.Pool,
-    team: str,
-    league: str,
+    pool: asyncpg.Pool | None,
+    team: str | int,
+    league: str | int,
     match_limit: int = 15,
-    venue: Literal["home", "away"] | None = None
+    venue: Literal["home", "away"] | None = None,
+    api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """
     Analyze form consistency and volatility.
 
+    REDESIGNED (2026-08-19): Uses API-Football directly when available.
+
     Args:
-        pool: AsyncPG connection pool
-        team: Team name to analyze
-        league: League/competition name
+        pool: AsyncPG connection pool (fallback, can be None if api_client provided)
+        team: Team name (for DB) or API-Football team ID (for API)
+        league: League name (for DB) or API-Football league ID (for API)
         match_limit: Number of recent matches to analyze (default: 15)
         venue: Optional venue filter ("home" or "away")
+        api_client: Optional API-Football client (preferred)
 
     Returns:
         {
@@ -53,21 +61,40 @@ async def get_consistency_score(
 
     Example:
         >>> result = await get_consistency_score(
-        ...     pool, "Arsenal", "Premier League", match_limit=10
+        ...     pool=None, team=42, league=39, api_client=client
         ... )
         >>> print(result["data"]["consistency_rating"])
         85
-        >>> print(result["data"]["volatility"])
-        "low"
     """
-    # Get recent matches
-    matches = await BaseFormTool.get_recent_team_matches(
-        pool=pool,
-        team=team,
-        league=league,
-        match_limit=match_limit,
-        venue=venue
-    )
+    # Use API client if available
+    if api_client is not None and isinstance(team, int):
+        league_id = league if isinstance(league, int) else None
+        matches = await BaseFormTool.get_recent_team_matches_api(
+            api_client=api_client,
+            team_id=team,
+            league_id=league_id,
+            match_limit=match_limit,
+            venue=venue,
+        )
+        team_identifier: str | int = team
+    else:
+        # Fallback to database
+        if pool is None:
+            raise ValueError("Either api_client or pool must be provided")
+        matches = await BaseFormTool.get_recent_team_matches(
+            pool=pool,
+            team=str(team),
+            league=str(league),
+            match_limit=match_limit,
+            venue=venue,
+        )
+        team_identifier = str(team)
+
+    def is_home_team(match: dict[str, Any]) -> bool:
+        """Check if our team is the home team."""
+        if isinstance(team_identifier, int):
+            return match.get('home_team_id') == team_identifier
+        return match.get('home_team') == team_identifier
 
     # Handle no data case
     if not matches:
@@ -94,7 +121,9 @@ async def get_consistency_score(
         }
 
     # Analyze consistency using ConsistencyAnalyzer
-    consistency_analysis = ConsistencyAnalyzer.analyze(matches, team)
+    # For ConsistencyAnalyzer, we need to pass the team identifier
+    team_for_analyzer = str(team_identifier) if isinstance(team_identifier, int) else team_identifier
+    consistency_analysis = ConsistencyAnalyzer.analyze(matches, team_for_analyzer)
 
     # Count result distribution
     wins = 0
@@ -103,9 +132,9 @@ async def get_consistency_score(
     total_points = 0
 
     for match in matches:
-        is_home = match['home_team'] == team
-        home_score = match['home_score']
-        away_score = match['away_score']
+        is_home = is_home_team(match)
+        home_score = match.get('home_score', 0) or 0
+        away_score = match.get('away_score', 0) or 0
 
         if is_home:
             if home_score > away_score:
