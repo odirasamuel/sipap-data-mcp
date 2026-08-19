@@ -27,18 +27,29 @@ async def get_team_stats_api(
     team_id: int,
     league_id: int,
     season: int,
+    min_matches: int = 10,
 ) -> dict[str, Any]:
     """Get team statistics using API-Football directly.
+
+    If the current season has fewer than min_matches played, also fetches
+    the previous season's stats and last 15 completed fixtures across all
+    competitions for comprehensive analysis.
 
     Args:
         api_client: API-Football client instance
         team_id: API-Football team ID (e.g., 50 for Manchester City)
         league_id: API-Football league ID (e.g., 39 for Premier League)
         season: Season year (e.g., 2026)
+        min_matches: Minimum matches threshold (default: 10)
 
     Returns:
-        Dictionary with "stats" key containing team statistics
+        Dictionary with "stats" key containing team statistics,
+        plus "previous_season_stats" and "recent_fixtures" if current season
+        has fewer than min_matches.
     """
+    from sipap_data_mcp.api.transformers import transform_fixtures
+
+    # Get current season stats
     response = await api_client.get_team_statistics(
         team_id=team_id,
         league_id=league_id,
@@ -49,10 +60,53 @@ async def get_team_stats_api(
 
     if not stats:
         logger.warning(f"No stats found for team {team_id} in league {league_id} season {season}")
-        return {"stats": {}}
+        stats = {}
+
+    # Check if current season has enough matches
+    current_matches_played = stats.get("total_played", 0) if stats else 0
+
+    result: dict[str, Any] = {"stats": stats}
+
+    if current_matches_played < min_matches:
+        logger.info(
+            f"get_team_stats_api: team {team_id} has only {current_matches_played} matches "
+            f"in season {season}, fetching supplementary data"
+        )
+
+        # Fetch previous season stats
+        previous_season = season - 1
+        prev_response = await api_client.get_team_statistics(
+            team_id=team_id,
+            league_id=league_id,
+            season=previous_season,
+        )
+        prev_stats = transform_team_statistics(prev_response)
+
+        if prev_stats:
+            result["previous_season_stats"] = prev_stats
+            result["previous_season"] = previous_season
+            logger.info(f"get_team_stats_api: included previous season {previous_season} stats")
+
+        # Fetch last 15 completed fixtures across all competitions
+        fixtures_response = await api_client.get_fixtures(
+            team=team_id,
+            last=15,
+            status="FT",
+        )
+        recent_fixtures = transform_fixtures(fixtures_response)
+
+        if recent_fixtures:
+            result["recent_fixtures"] = recent_fixtures
+            result["recent_fixtures_count"] = len(recent_fixtures)
+            logger.info(f"get_team_stats_api: included {len(recent_fixtures)} recent fixtures")
+
+        result["data_note"] = (
+            f"Current season ({season}) has only {current_matches_played} matches. "
+            f"Previous season stats and last 15 fixtures included for comprehensive analysis."
+        )
 
     logger.info(f"get_team_stats_api: team {team_id}, league {league_id}, season {season}")
-    return {"stats": stats}
+    return result
 
 
 async def get_team_stats(
