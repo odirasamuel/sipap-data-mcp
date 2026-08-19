@@ -56,6 +56,26 @@ def _map_status_to_api(status: str) -> str:
     return status_map.get(status, status)
 
 
+def _derive_season_from_date(date_str: str) -> int:
+    """Derive API-Football season year from a date string.
+
+    European football seasons run Aug-May, so:
+    - Aug-Dec: season = that year (e.g., Aug 2026 -> season 2026)
+    - Jan-Jul: season = previous year (e.g., May 2027 -> season 2026)
+
+    Args:
+        date_str: Date in YYYY-MM-DD format
+
+    Returns:
+        Season year (e.g., 2026)
+    """
+    date_obj = datetime.fromisoformat(date_str)
+    if date_obj.month >= 8:  # Aug-Dec
+        return date_obj.year
+    else:  # Jan-Jul
+        return date_obj.year - 1
+
+
 async def get_match_schedule_api(
     api_client: APIFootballClient,
     date_from: str,
@@ -78,9 +98,13 @@ async def get_match_schedule_api(
     # Map status to API-Football format
     api_status = _map_status_to_api(status)
 
+    # Derive season from date (required when filtering by league)
+    season = _derive_season_from_date(date_from) if league_id else None
+
     # Call API-Football
     response = await api_client.get_fixtures(
         league=league_id,
+        season=season,
         from_date=date_from,
         to_date=date_to,
         status=api_status,
@@ -474,17 +498,21 @@ async def search_fixtures_api(
 
     all_fixtures: list[dict[str, Any]] = []
 
+    # Derive season from date_from (required when filtering by league)
+    season = _derive_season_from_date(date_from)
+
     if league_ids:
         # Query each league
         for league_id in league_ids:
             response = await api_client.get_fixtures(
                 league=league_id,
+                season=season,
                 from_date=date_from,
                 to_date=date_to,
                 status=api_status,
             )
             fixtures = transform_fixtures(response)
-            logger.info(f"search_fixtures_api: League {league_id} returned {len(fixtures)} fixtures")
+            logger.info(f"search_fixtures_api: League {league_id} season {season} returned {len(fixtures)} fixtures")
             all_fixtures.extend(fixtures)
     else:
         # Get current season from today's year
