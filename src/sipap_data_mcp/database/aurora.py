@@ -1102,6 +1102,67 @@ class AuroraDataClient:
 
         return [self._record_to_dict(row) for row in rows]
 
+    async def query_match_history_by_api_team_id(
+        self,
+        team_api_id: int,
+        limit: int = 15,
+    ) -> list[dict[str, Any]]:
+        """Query historical finished matches by API-Football team ID.
+
+        Used as fallback when team_statistics is empty for current season.
+        Queries matches where the team is home or away (via metadata API IDs).
+
+        Args:
+            team_api_id: API-Football team ID (e.g., 530 for Atletico Madrid)
+            limit: Maximum number of matches to return (default: 15)
+
+        Returns:
+            List of finished matches ordered by date (most recent first).
+            Each record contains: id, external_id, scheduled_at, status,
+            home_team, away_team, home_score, away_score, league,
+            home_team_api_id, away_team_api_id, metadata.
+
+        Raises:
+            RuntimeError: If client not connected
+
+        Example:
+            ```python
+            matches = await client.query_match_history_by_api_team_id(
+                team_api_id=530,  # Atletico Madrid
+                limit=15
+            )
+            # Returns: [{"home_team": "...", "home_score": 2, ...}, ...]
+            ```
+        """
+        self._ensure_connected()
+
+        # Query finished matches where team is home or away
+        # Uses metadata->>home_team_api_id and metadata->>away_team_api_id
+        query = """
+            SELECT
+                m.id, m.external_id, m.scheduled_at, m.status,
+                m.home_team, m.away_team,
+                m.home_score, m.away_score,
+                m.league, m.league_id,
+                (m.metadata->>'home_team_api_id')::int as home_team_api_id,
+                (m.metadata->>'away_team_api_id')::int as away_team_api_id,
+                m.metadata
+            FROM matches m
+            WHERE m.status IN ('FT', 'AET', 'PEN', 'finished')
+              AND (
+                (m.metadata->>'home_team_api_id')::int = $1
+                OR (m.metadata->>'away_team_api_id')::int = $1
+              )
+            ORDER BY m.scheduled_at DESC
+            LIMIT $2
+        """
+
+        assert self._pool is not None
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, team_api_id, limit)
+
+        return [self._record_to_dict(row) for row in rows]
+
     async def get_matches_by_external_league_id(
         self,
         external_league_id: str,
