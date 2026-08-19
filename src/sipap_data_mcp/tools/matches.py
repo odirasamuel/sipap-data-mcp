@@ -329,14 +329,20 @@ async def get_live_matches(
 async def search_matches_api(
     api_client: APIFootballClient,
     query: str,
+    min_matches: int = 10,
+    target_matches: int = 15,
 ) -> dict[str, Any]:
     """Search for matches using API-Football.
 
-    Searches for teams matching the query and returns their recent fixtures.
+    Searches for teams matching the query and returns their recent completed fixtures.
+    Includes pre-season, friendlies, and previous season matches if current season
+    has fewer than min_matches completed.
 
     Args:
         api_client: API-Football client instance
         query: Search query string (team name)
+        min_matches: Minimum matches desired (default: 10)
+        target_matches: Target number of matches to return (default: 15)
 
     Returns:
         Dictionary with "matches" key containing list of matching matches
@@ -347,23 +353,60 @@ async def search_matches_api(
 
     if not teams:
         logger.info(f"search_matches_api: no teams found for '{query}'")
-        return {"matches": []}
+        return {"matches": [], "team_found": False, "team_id": None}
 
     # Get fixtures for the first matching team
-    team_id = teams[0].get("team", {}).get("id")
-    if not team_id:
-        return {"matches": []}
+    team_info = teams[0].get("team", {})
+    team_id = team_info.get("id")
+    team_name = team_info.get("name", query)
 
-    # Get recent fixtures for this team
+    if not team_id:
+        logger.warning(f"search_matches_api: team found but no ID for '{query}'")
+        return {"matches": [], "team_found": True, "team_id": None}
+
+    logger.info(f"search_matches_api: found team '{team_name}' (ID: {team_id}) for query '{query}'")
+
+    # Strategy: Get last N fixtures without season filter
+    # This includes all competitions: league, cup, friendly, pre-season
     fixtures_response = await api_client.get_fixtures(
         team=team_id,
-        last=100,  # Last 100 fixtures
+        last=target_matches,  # Get target number of completed fixtures
+        status="FT",  # Only finished matches
     )
 
     matches = transform_fixtures(fixtures_response)
-    logger.info(f"search_matches_api: {len(matches)} matches for team '{query}' (ID: {team_id})")
+    logger.info(f"search_matches_api: {len(matches)} completed matches for '{team_name}'")
 
-    return {"matches": matches}
+    # If we got fewer than min_matches with FT status, try without status filter
+    # (in case some matches have different completion statuses like AET, PEN)
+    if len(matches) < min_matches:
+        logger.info(f"search_matches_api: only {len(matches)} matches, trying broader search")
+
+        # Get more fixtures without status filter, then filter completed ones
+        broader_response = await api_client.get_fixtures(
+            team=team_id,
+            last=target_matches * 2,  # Get more to filter from
+        )
+
+        all_fixtures = transform_fixtures(broader_response)
+
+        # Filter to completed statuses (FT, AET, PEN, AWD, WO)
+        completed_statuses = {"FT", "AET", "PEN", "AWD", "WO"}
+        completed_matches = [
+            m for m in all_fixtures
+            if m.get("status") in completed_statuses
+        ][:target_matches]
+
+        if len(completed_matches) > len(matches):
+            matches = completed_matches
+            logger.info(f"search_matches_api: broader search found {len(matches)} completed matches")
+
+    return {
+        "matches": matches[:target_matches],
+        "team_found": True,
+        "team_id": team_id,
+        "team_name": team_name,
+    }
 
 
 async def search_matches(
