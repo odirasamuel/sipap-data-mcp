@@ -7,3 +7,6 @@
 # Database driver (async PostgreSQL)
 # Note: sipap-common already provides redis + hiredis, so we only need asyncpg
 asyncpg>=0.29.0
+
+# HTTP client for API-Football direct access (Data MCP redesign 2026-08-19)
+aiohttp>=3.9.0
