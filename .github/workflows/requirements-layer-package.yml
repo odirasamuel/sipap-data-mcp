@@ -1,4 +1,4 @@
-name: Build Data MCP Requirements Layer
+name: Build Data MCP Dependencies Layer
 
 on:
   push:
@@ -9,12 +9,95 @@ on:
       - '.github/workflows/requirements-layer-package.yml'
 
 jobs:
-  # Call the centralized workflow from sipap-common
-  build-lambda-package:
-    uses: odirasamuel/sipap-common/.github/workflows/build-lambda-package.yml@main
+  build-and-upload:
+    name: Build dependencies layer for Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+
     permissions:
-      contents: read
       id-token: write
-    secrets:
-      AWS_GITHUB_ACTIONS_ROLE_ARN: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
-      # S3_LAMBDA_BUCKET: ${{ secrets.S3_LAMBDA_BUCKET }}
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Build Lambda layer (dependencies only)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf layer
+          mkdir -p layer/python
+
+          # Install third-party dependencies only
+          # NOTE: sipap_common and sipap_mcp are provided as SEPARATE Lambda layers
+          # This layer only contains: asyncpg, aiohttp, and their dependencies
+          python -m pip install --upgrade pip
+          pip install \
+            -r requirements-lambda.txt \
+            --no-cache-dir \
+            --no-compile \
+            --upgrade \
+            --target layer/python
+
+          # Clean up unnecessary files
+          find layer -type d -name "__pycache__" -exec rm -rf {} + || true
+          find layer -type d -name "tests" -exec rm -rf {} + || true
+          find layer -type f -name "*.pyc" -delete || true
+          find layer -type d -name "*.dist-info" -exec rm -rf {} + || true
+
+          echo "=== Layer contents ==="
+          ls -la layer/python/ | head -30
+          echo ""
+          echo "=== Layer size ==="
+          du -sh layer/
+
+      - name: Package Lambda layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP_NAME="data-mcp_layer_py${{ matrix.python }}.zip"
+
+          cd layer
+          zip -X -r "../${ZIP_NAME}" python
+          cd ..
+
+          rm -rf layer
+
+          echo "Created layer package: ${ZIP_NAME}"
+          ls -lh "${ZIP_NAME}"
+
+      - name: Upload layer to S3
+        shell: bash
+        env:
+          S3_BUCKET: sipap-lambda-packages-dev
+        run: |
+          set -euo pipefail
+
+          PY_FOLDER="python_${{ matrix.python }}"
+          KEY="data-mcp/${PY_FOLDER}/layer.zip"
+          ZIP_FILE="data-mcp_layer_py${{ matrix.python }}.zip"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          aws s3 cp \
+            "${ZIP_FILE}" \
+            "s3://${S3_BUCKET}/${KEY}" \
+            --metadata "git-sha=${{ github.sha }},git-branch=${{ github.ref_name }},python-version=${{ matrix.python }},package-name=data-mcp,build-date=${BUILD_DATE}"
+
+          echo "Uploaded data-mcp layer -> s3://${S3_BUCKET}/${KEY}"
