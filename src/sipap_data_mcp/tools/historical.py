@@ -97,7 +97,8 @@ async def get_form_data_api(
         params["league"] = league_id
 
     response = await api_client.get_fixtures(**params)
-    form_data = calculate_form_from_fixtures(response, team_id)
+    fixtures = transform_fixtures(response)
+    form_data = calculate_form_from_fixtures(fixtures, team_id)
 
     logger.info(f"get_form_data_api: team {team_id}, form '{form_data.get('form', '')}'")
     return form_data
