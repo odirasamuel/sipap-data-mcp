@@ -408,9 +408,14 @@ async def get_ht_ft_outcome(
     all_matches = matches_data["all_matches"]
 
     def has_ht_data(m: dict) -> bool:
+        # Transformed API format: ht_home_score/ht_away_score at top level
+        if m.get('ht_home_score') is not None and m.get('ht_away_score') is not None:
+            return True
+        # Raw API format: score.halftime.home/away
         if m.get('score') and m['score'].get('halftime'):
             ht = m['score']['halftime']
             return ht.get('home') is not None and ht.get('away') is not None
+        # DB format: metadata->halftime_home_score/halftime_away_score
         if m.get('metadata'):
             return ('halftime_home_score' in m['metadata'] and
                     'halftime_away_score' in m['metadata'])
@@ -540,9 +545,14 @@ async def get_half_time_goals(
     all_matches = matches_data["all_matches"]
 
     def has_ht_data(m: dict) -> bool:
+        # Transformed API format: ht_home_score/ht_away_score at top level
+        if m.get('ht_home_score') is not None and m.get('ht_away_score') is not None:
+            return True
+        # Raw API format: score.halftime.home/away
         if m.get('score') and m['score'].get('halftime'):
             ht = m['score']['halftime']
             return ht.get('home') is not None and ht.get('away') is not None
+        # DB format: metadata->halftime_home_score/halftime_away_score
         if m.get('metadata'):
             return ('halftime_home_score' in m['metadata'] and
                     'halftime_away_score' in m['metadata'])
@@ -684,9 +694,14 @@ async def get_2nd_half_goals(
     all_matches = matches_data["all_matches"]
 
     def has_ht_data(m: dict) -> bool:
+        # Transformed API format: ht_home_score/ht_away_score at top level
+        if m.get('ht_home_score') is not None and m.get('ht_away_score') is not None:
+            return True
+        # Raw API format: score.halftime.home/away
         if m.get('score') and m['score'].get('halftime'):
             ht = m['score']['halftime']
             return ht.get('home') is not None and ht.get('away') is not None
+        # DB format: metadata->halftime_home_score/halftime_away_score
         if m.get('metadata'):
             return ('halftime_home_score' in m['metadata'] and
                     'halftime_away_score' in m['metadata'])
