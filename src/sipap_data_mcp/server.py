@@ -1026,9 +1026,9 @@ class SIPAPDataMCP(MCPServer):
         input_schema={
             "type": "object",
             "properties": {
-                "home_team": {"type": "string", "description": "Home team name"},
-                "away_team": {"type": "string", "description": "Away team name"},
-                "league": {"type": "string", "description": "League name"},
+                "home_team": {"type": ["string", "integer"], "description": "Home team name or API-Football team ID"},
+                "away_team": {"type": ["string", "integer"], "description": "Away team name or API-Football team ID"},
+                "league": {"type": ["string", "integer"], "description": "League name or API-Football league ID"},
                 "seasons_back": {"type": "integer", "default": 6, "description": "Number of seasons to analyze"},
                 "current_form_matches": {"type": "integer", "default": 10, "description": "Number of recent matches for form analysis"}
             },
@@ -1037,18 +1037,18 @@ class SIPAPDataMCP(MCPServer):
     )
     def get_h2h_full_time_result(
         self,
-        home_team: str,
-        away_team: str,
-        league: str,
+        home_team: str | int,
+        away_team: str | int,
+        league: str | int,
         seasons_back: int = 6,
         current_form_matches: int = 10
     ) -> dict[str, Any]:
         """Analyze head-to-head full-time results.
 
         Args:
-            home_team: Home team name
-            away_team: Away team name
-            league: League name
+            home_team: Home team name or API-Football team ID
+            away_team: Away team name or API-Football team ID
+            league: League name or API-Football league ID
             seasons_back: Number of seasons to analyze
             current_form_matches: Number of recent matches for form analysis
 
@@ -1063,7 +1063,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
