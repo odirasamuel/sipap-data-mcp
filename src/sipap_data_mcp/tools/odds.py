@@ -35,7 +35,7 @@ async def get_match_odds_api(
         - fixture_id: The fixture ID
         - count: Number of bookmakers
     """
-    response = await api_client.get_odds(fixture=fixture_id)
+    response = await api_client.get_odds(fixture_id=fixture_id)
     odds = transform_odds(response)
 
     logger.info(f"get_match_odds_api: fixture {fixture_id}, {len(odds)} odds records")
@@ -119,7 +119,7 @@ async def get_odds_movements_api(
     Returns:
         Dictionary with current odds and empty movements
     """
-    response = await api_client.get_odds(fixture=fixture_id)
+    response = await api_client.get_odds(fixture_id=fixture_id)
     odds = transform_odds(response)
 
     # Extract current odds from the first bookmaker
