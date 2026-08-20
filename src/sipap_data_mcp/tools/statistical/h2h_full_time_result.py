@@ -267,8 +267,16 @@ async def get_h2h_full_time_result(
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
-            "earliest_match": matches_data["earliest_match"].isoformat() if matches_data["earliest_match"] else None,
-            "latest_match": matches_data["latest_match"].isoformat() if matches_data["latest_match"] else None,
+            "earliest_match": (
+                matches_data["earliest_match"].isoformat()
+                if hasattr(matches_data["earliest_match"], "isoformat")
+                else matches_data["earliest_match"]
+            ) if matches_data["earliest_match"] else None,
+            "latest_match": (
+                matches_data["latest_match"].isoformat()
+                if hasattr(matches_data["latest_match"], "isoformat")
+                else matches_data["latest_match"]
+            ) if matches_data["latest_match"] else None,
             "data_quality": data_quality
         }
     }
