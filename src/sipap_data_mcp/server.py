@@ -1110,7 +1110,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1156,7 +1157,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1198,7 +1200,8 @@ class SIPAPDataMCP(MCPServer):
                 team=team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1240,7 +1243,8 @@ class SIPAPDataMCP(MCPServer):
                 team=team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1290,7 +1294,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1336,7 +1341,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1382,7 +1388,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1428,7 +1435,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1474,7 +1482,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1528,7 +1537,8 @@ class SIPAPDataMCP(MCPServer):
                 league=league,
                 perspective=perspective,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1582,7 +1592,8 @@ class SIPAPDataMCP(MCPServer):
                 perspective=perspective,
                 goals_threshold=goals_threshold,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1636,7 +1647,8 @@ class SIPAPDataMCP(MCPServer):
                 perspective=perspective,
                 goals_threshold=goals_threshold,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1686,7 +1698,8 @@ class SIPAPDataMCP(MCPServer):
                 league=league,
                 perspective=perspective,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1736,7 +1749,8 @@ class SIPAPDataMCP(MCPServer):
                 league=league,
                 perspective=perspective,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1786,7 +1800,8 @@ class SIPAPDataMCP(MCPServer):
                 league=league,
                 goals_threshold=goals_threshold,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1840,7 +1855,8 @@ class SIPAPDataMCP(MCPServer):
                 perspective=perspective,
                 goals_threshold=goals_threshold,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1890,7 +1906,8 @@ class SIPAPDataMCP(MCPServer):
                 league=league,
                 perspective=perspective,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1940,7 +1957,8 @@ class SIPAPDataMCP(MCPServer):
                 league=league,
                 perspective=perspective,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -1990,7 +2008,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -2036,7 +2055,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -2082,7 +2102,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -2128,7 +2149,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
 
@@ -2174,7 +2196,8 @@ class SIPAPDataMCP(MCPServer):
                 away_team=away_team,
                 league=league,
                 seasons_back=seasons_back,
-                current_form_matches=current_form_matches
+                current_form_matches=current_form_matches,
+                api_client=self.api_client,
             )
         )
     # ========================================================================
