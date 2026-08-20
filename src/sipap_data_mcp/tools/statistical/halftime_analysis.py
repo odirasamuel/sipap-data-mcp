@@ -61,7 +61,10 @@ async def get_h2h_half_time_result(
 
     # Filter matches with halftime data (handles both DB and API formats)
     def has_ht_data(m: dict) -> bool:
-        # API format: score.halftime.home/away
+        # Transformed API format: ht_home_score/ht_away_score at top level
+        if m.get('ht_home_score') is not None and m.get('ht_away_score') is not None:
+            return True
+        # Raw API format: score.halftime.home/away
         if m.get('score') and m['score'].get('halftime'):
             ht = m['score']['halftime']
             return ht.get('home') is not None and ht.get('away') is not None
@@ -92,7 +95,10 @@ async def get_h2h_half_time_result(
 
     def get_ht_scores(match: dict) -> tuple[int, int]:
         """Get halftime scores from match (handles both DB and API formats)."""
-        # API format
+        # Transformed API format
+        if match.get('ht_home_score') is not None:
+            return (match.get('ht_home_score', 0) or 0, match.get('ht_away_score', 0) or 0)
+        # Raw API format
         if match.get('score') and match['score'].get('halftime'):
             ht = match['score']['halftime']
             return (ht.get('home', 0) or 0, ht.get('away', 0) or 0)
@@ -232,9 +238,14 @@ async def get_h2h_2nd_half_result(
 
     # Filter matches with halftime data (handles both DB and API formats)
     def has_ht_data(m: dict) -> bool:
+        # Transformed API format: ht_home_score/ht_away_score at top level
+        if m.get('ht_home_score') is not None and m.get('ht_away_score') is not None:
+            return True
+        # Raw API format: score.halftime.home/away
         if m.get('score') and m['score'].get('halftime'):
             ht = m['score']['halftime']
             return ht.get('home') is not None and ht.get('away') is not None
+        # DB format: metadata->halftime_home_score/halftime_away_score
         if m.get('metadata'):
             return ('halftime_home_score' in m['metadata'] and
                     'halftime_away_score' in m['metadata'])
@@ -260,9 +271,14 @@ async def get_h2h_2nd_half_result(
 
     def get_ht_scores(match: dict) -> tuple[int, int]:
         """Get halftime scores (handles both DB and API formats)."""
+        # Transformed API format
+        if match.get('ht_home_score') is not None:
+            return (match.get('ht_home_score', 0) or 0, match.get('ht_away_score', 0) or 0)
+        # Raw API format
         if match.get('score') and match['score'].get('halftime'):
             ht = match['score']['halftime']
             return (ht.get('home', 0) or 0, ht.get('away', 0) or 0)
+        # DB format
         if match.get('metadata'):
             return (
                 int(match['metadata'].get('halftime_home_score', 0)),
@@ -411,9 +427,14 @@ async def get_ht_ft_outcome(
 
     def get_ht_scores(match: dict) -> tuple[int, int]:
         """Get halftime scores (handles both DB and API formats)."""
+        # Transformed API format
+        if match.get('ht_home_score') is not None:
+            return (match.get('ht_home_score', 0) or 0, match.get('ht_away_score', 0) or 0)
+        # Raw API format
         if match.get('score') and match['score'].get('halftime'):
             ht = match['score']['halftime']
             return (ht.get('home', 0) or 0, ht.get('away', 0) or 0)
+        # DB format
         if match.get('metadata'):
             return (
                 int(match['metadata'].get('halftime_home_score', 0)),
@@ -538,9 +559,14 @@ async def get_half_time_goals(
 
     def get_ht_scores_raw(match: dict) -> tuple[int, int]:
         """Get halftime scores (handles both DB and API formats)."""
+        # Transformed API format
+        if match.get('ht_home_score') is not None:
+            return (match.get('ht_home_score', 0) or 0, match.get('ht_away_score', 0) or 0)
+        # Raw API format
         if match.get('score') and match['score'].get('halftime'):
             ht = match['score']['halftime']
             return (ht.get('home', 0) or 0, ht.get('away', 0) or 0)
+        # DB format
         if match.get('metadata'):
             return (
                 int(match['metadata'].get('halftime_home_score', 0)),
@@ -677,9 +703,14 @@ async def get_2nd_half_goals(
 
     def get_ht_scores_raw(match: dict) -> tuple[int, int]:
         """Get halftime scores (handles both DB and API formats)."""
+        # Transformed API format
+        if match.get('ht_home_score') is not None:
+            return (match.get('ht_home_score', 0) or 0, match.get('ht_away_score', 0) or 0)
+        # Raw API format
         if match.get('score') and match['score'].get('halftime'):
             ht = match['score']['halftime']
             return (ht.get('home', 0) or 0, ht.get('away', 0) or 0)
+        # DB format
         if match.get('metadata'):
             return (
                 int(match['metadata'].get('halftime_home_score', 0)),
