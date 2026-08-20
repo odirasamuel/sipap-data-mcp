@@ -14,7 +14,7 @@ from uuid import UUID
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 from sipap_data_mcp.api.transformers import transform_fixtures
-from sipap_data_mcp.database.aurora import AuroraDataClient
+# Database removed (2026-08-20) - import removed
 
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ async def get_match_schedule_api(
 
 
 async def get_match_schedule(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     date_from: str,
     date_to: str,
     status: str = "scheduled",
@@ -212,7 +212,7 @@ async def get_match_details_api(
 
 
 async def get_match_details(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     match_id: str,
     api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
@@ -285,7 +285,7 @@ async def get_live_matches_api(
 
 
 async def get_live_matches(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get all currently live matches.
@@ -410,7 +410,7 @@ async def search_matches_api(
 
 
 async def search_matches(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     query: str,
     api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
@@ -590,7 +590,7 @@ async def search_fixtures_api(
 
 
 async def search_fixtures(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     league_ids: list[int] | None = None,
     league_names: list[str] | None = None,
     date_from: str | None = None,

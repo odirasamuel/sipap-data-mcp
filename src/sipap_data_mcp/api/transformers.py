@@ -258,6 +258,125 @@ def transform_odds(api_response: dict[str, Any], fixture_id: int) -> dict[str, A
     }
 
 
+def transform_odds_for_market(
+    api_response: dict[str, Any],
+    fixture_id: int,
+    bet_id: int,
+    target_outcome: str,
+    line: float | None = None,
+) -> dict[str, Any]:
+    """Transform API-Football odds response for a specific market and outcome.
+
+    Extracts odds from all bookmakers for a specific bet type and outcome value.
+    Returns the best odds available across all bookmakers.
+
+    Args:
+        api_response: Full API-Football odds response
+        fixture_id: Fixture ID for context
+        bet_id: API-Football bet type ID (1=Match Winner, 5=Over/Under, 8=BTTS, etc.)
+        target_outcome: The outcome value to extract (e.g., "Home", "Over 2.5", "Yes")
+        line: Optional goal line for Over/Under markets (e.g., 2.5)
+
+    Returns:
+        Dictionary with:
+        - fixture_id: The fixture ID
+        - bet_id: The bet type ID
+        - outcome: The requested outcome
+        - best_odds: Highest odds found across bookmakers
+        - best_bookmaker: Name of bookmaker with best odds
+        - all_odds: List of all bookmaker odds for this outcome
+
+    Example:
+        ```python
+        # Get BTTS Yes odds
+        result = transform_odds_for_market(
+            api_response=response,
+            fixture_id=1234567,
+            bet_id=8,  # BTTS
+            target_outcome="Yes"
+        )
+        # Returns:
+        # {
+        #   "fixture_id": 1234567,
+        #   "bet_id": 8,
+        #   "outcome": "Yes",
+        #   "best_odds": 1.85,
+        #   "best_bookmaker": "Bet365",
+        #   "all_odds": [{"bookmaker": "Bet365", "odds": 1.85}, ...]
+        # }
+        ```
+    """
+    response_list = api_response.get("response", [])
+
+    if not response_list:
+        return {
+            "fixture_id": fixture_id,
+            "bet_id": bet_id,
+            "outcome": target_outcome,
+            "line": line,
+            "best_odds": 0.0,
+            "best_bookmaker": None,
+            "all_odds": [],
+        }
+
+    bookmakers_data = response_list[0].get("bookmakers", [])
+
+    best_odds = 0.0
+    best_bookmaker: str | None = None
+    all_odds: list[dict[str, Any]] = []
+
+    for bookmaker in bookmakers_data:
+        bookmaker_name = bookmaker.get("name")
+
+        for bet in bookmaker.get("bets", []):
+            if bet.get("id") != bet_id:
+                continue
+
+            # Found the right bet type, now find the outcome
+            for value in bet.get("values", []):
+                value_str = value.get("value", "")
+
+                # For Over/Under markets, need to match both outcome and line
+                # API returns values like "Over 2.5", "Under 2.5"
+                matches_outcome = False
+
+                if line is not None:
+                    # Over/Under market - match outcome and line
+                    # target_outcome could be "Over 2.5" or just "Over"
+                    expected_value = f"{target_outcome.split()[0]} {line}" if " " not in target_outcome else target_outcome
+                    matches_outcome = value_str == expected_value or value_str == target_outcome
+                else:
+                    # Non-line market - direct match
+                    matches_outcome = value_str == target_outcome
+
+                if matches_outcome:
+                    odds = float(value.get("odd", 0))
+                    if odds > 0:
+                        all_odds.append({
+                            "bookmaker": bookmaker_name,
+                            "odds": odds,
+                        })
+                        if odds > best_odds:
+                            best_odds = odds
+                            best_bookmaker = bookmaker_name
+                    break  # Found outcome in this bet
+
+            break  # Found bet type in this bookmaker
+
+    # Sort all_odds by odds descending (best first)
+    all_odds.sort(key=lambda x: x["odds"], reverse=True)
+
+    return {
+        "fixture_id": fixture_id,
+        "bet_id": bet_id,
+        "outcome": target_outcome,
+        "line": line,
+        "best_odds": best_odds,
+        "best_bookmaker": best_bookmaker,
+        "all_odds": all_odds,
+    }
+
+
 def transform_h2h(api_response: dict[str, Any]) -> dict[str, Any]:
     """Transform API-Football H2H response to MCP format.
 

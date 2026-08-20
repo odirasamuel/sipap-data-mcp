@@ -17,7 +17,7 @@ from sipap_data_mcp.api.transformers import (
     transform_standings,
     transform_team_statistics,
 )
-from sipap_data_mcp.database.aurora import AuroraDataClient
+# Database removed (2026-08-20) - import removed
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ async def get_team_stats_api(
 
 
 async def get_team_stats(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     team_id: int,
     league_id: int,
     season: str,
@@ -172,7 +172,7 @@ async def get_team_stats(
 
 
 async def _compute_stats_from_matches(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     team_id: int,
     num_matches: int = 15,
 ) -> dict[str, Any]:
@@ -304,7 +304,7 @@ async def get_league_table_api(
 
 
 async def get_league_table(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     league_id: int,
     season: str,
     api_client: APIFootballClient | None = None,
@@ -386,7 +386,7 @@ async def get_head_to_head_api(
 
 
 async def get_head_to_head(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     home_team_id: int,
     away_team_id: int,
     api_client: APIFootballClient | None = None,

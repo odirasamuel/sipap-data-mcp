@@ -7,11 +7,11 @@ UPDATED for Phase 3: Now uses integer fixture IDs from API-Football.
 
 from typing import Any
 
-from sipap_data_mcp.database.aurora import AuroraDataClient
+# Database removed (2026-08-20) - import removed
 
 
 async def get_lineups(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     fixture_id: int,
 ) -> dict[str, Any]:
     """Get team lineups (starting XI and substitutes) for a specific fixture.

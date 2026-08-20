@@ -12,7 +12,7 @@ REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent cac
 import logging
 from typing import Any, Literal, Callable
 from datetime import datetime
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 
@@ -335,7 +335,7 @@ class BaseStatisticalTool:
 
     @staticmethod
     async def get_h2h_matches(
-        pool: asyncpg.Pool,
+        pool: Any,
         home_team: str,
         away_team: str,
         league: str,
@@ -441,7 +441,7 @@ class BaseStatisticalTool:
 
     @staticmethod
     async def get_team_matches(
-        pool: asyncpg.Pool,
+        pool: Any,
         team: str,
         venue: Literal["home", "away"],
         league: str,

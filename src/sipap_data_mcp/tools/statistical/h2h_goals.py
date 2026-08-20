@@ -7,13 +7,13 @@ REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent cac
 """
 
 from typing import Any
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_h2h_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,

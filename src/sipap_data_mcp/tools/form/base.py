@@ -14,7 +14,7 @@ import logging
 import statistics
 from typing import Any, Literal
 
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 
@@ -381,7 +381,7 @@ class BaseFormTool:
 
     @staticmethod
     async def get_recent_team_matches(
-        pool: asyncpg.Pool,
+        pool: Any,
         team: str,
         league: str,
         match_limit: int = 15,
@@ -445,7 +445,7 @@ class BaseFormTool:
 
     @staticmethod
     async def get_recent_h2h_matches(
-        pool: asyncpg.Pool,
+        pool: Any,
         home_team: str,
         away_team: str,
         league: str,

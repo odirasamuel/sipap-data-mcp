@@ -11,13 +11,13 @@ REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent cac
 """
 
 from typing import Any
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_double_chance(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -131,7 +131,7 @@ async def get_double_chance(
 
 
 async def get_win_or_total_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -243,7 +243,7 @@ async def get_win_or_total_goals(
 
 
 async def get_win_and_total_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -352,7 +352,7 @@ async def get_win_and_total_goals(
 # For brevity, I'll provide stubs that follow the same structure
 
 async def get_win_or_both_scores(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -461,7 +461,7 @@ async def get_win_or_both_scores(
 
 
 async def get_win_and_both_scores(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -565,7 +565,7 @@ async def get_win_and_both_scores(
 
 
 async def get_both_scores_or_multi_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -659,7 +659,7 @@ async def get_both_scores_or_multi_goals(
 
 
 async def get_no_defeat_and_total_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -776,7 +776,7 @@ async def get_no_defeat_and_total_goals(
 
 
 async def get_avoid_halftime_defeat(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -929,7 +929,7 @@ async def get_avoid_halftime_defeat(
 
 
 async def get_avoid_2nd_half_defeat(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,

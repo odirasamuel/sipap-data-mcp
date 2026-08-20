@@ -8,7 +8,7 @@ REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent cac
 
 from typing import Any
 
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 
@@ -16,7 +16,7 @@ from .base import BaseFormTool
 
 
 async def get_venue_form_split(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     team: str | int,
     league: str | int,
     match_limit: int = 15,

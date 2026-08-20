@@ -12,13 +12,13 @@ REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent cac
 """
 
 from typing import Any
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_h2h_half_time_result(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -195,7 +195,7 @@ async def get_h2h_half_time_result(
 
 
 async def get_h2h_2nd_half_result(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -369,7 +369,7 @@ async def get_h2h_2nd_half_result(
 
 
 async def get_ht_ft_outcome(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -510,7 +510,7 @@ async def get_ht_ft_outcome(
 
 
 async def get_half_time_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,
@@ -659,7 +659,7 @@ async def get_half_time_goals(
 
 
 async def get_2nd_half_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     home_team: str | int,
     away_team: str | int,
     league: str | int,

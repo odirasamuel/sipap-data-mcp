@@ -1,13 +1,14 @@
 """AWS Lambda handler for SIPAP Data MCP.
 
 Provides Lambda entry point for JSON-RPC 2.0 MCP requests.
+
+REDESIGNED (2026-08-20): Database removed, now uses API-Football directly.
 """
 
 import asyncio
 import json
 import logging
 import os
-import boto3
 from typing import Any
 
 from sipap_data_mcp.server import SIPAPDataMCP
@@ -53,37 +54,12 @@ def get_event_loop() -> asyncio.AbstractEventLoop:
     return _event_loop
 
 
-def get_db_credentials() -> tuple[str, str]:
-    """Fetch database credentials from Secrets Manager.
-
-    Returns:
-        Tuple of (username, password)
-    """
-    credentials_arn = os.environ.get("POSTGRES_CREDENTIALS_ARN")
-    if not credentials_arn:
-        # Fallback to environment variables if no secret ARN
-        return (
-            os.environ.get("POSTGRES_USER", "sipap_readonly"),
-            os.environ.get("POSTGRES_PASSWORD", "")
-        )
-
-    try:
-        sm_client = boto3.client("secretsmanager")
-        response = sm_client.get_secret_value(SecretId=credentials_arn)
-        credentials = json.loads(response["SecretString"])
-        return (credentials.get("username", "sipap_readonly"),
-                credentials.get("password", ""))
-    except Exception as e:
-        logger.warning(f"Failed to fetch credentials from Secrets Manager: {e}", exc_info=True)
-        return (os.environ.get("POSTGRES_USER", "sipap_readonly"),
-                os.environ.get("POSTGRES_PASSWORD", ""))
-
-
 def get_server() -> SIPAPDataMCP:
     """Get or create MCP server instance.
 
+    REDESIGNED (2026-08-20): Database removed, now uses API-Football directly.
     Reuses server instance across Lambda invocations for connection pooling.
-    Ensures database connections are established and maintained.
+    Ensures API and cache connections are established and maintained.
 
     Returns:
         Initialized SIPAPDataMCP server
@@ -94,34 +70,22 @@ def get_server() -> SIPAPDataMCP:
         # COLD START: Create new server and establish connections
         logger.info("Cold start: Creating new MCP server")
 
-        # Get configuration from environment variables (AWS Lambda environment)
-        db_host = os.environ.get("POSTGRES_HOST", "localhost")
-        db_port = int(os.environ.get("POSTGRES_PORT", "5432"))
-        db_name = os.environ.get("POSTGRES_DB", "sipap_dev")
-
-        # Fetch database credentials from Secrets Manager
-        db_user, db_password = get_db_credentials()
-
         # Build Redis URL from endpoint
         redis_endpoint = os.environ.get("REDIS_ENDPOINT", "localhost:6379")
         redis_ssl = os.environ.get("REDIS_SSL", "false").lower() == "true"
         redis_protocol = "rediss" if redis_ssl else "redis"
         redis_url = f"{redis_protocol}://{redis_endpoint}/0"
 
-        # Get API-Football key from environment
+        # Get API-Football key from environment (required)
         api_football_key = os.environ.get("API_FOOTBALL_KEY")
+        if not api_football_key:
+            raise ValueError("API_FOOTBALL_KEY environment variable is required")
 
-        logger.info(f"Connecting to database: {db_host}:{db_port}/{db_name} (user: {db_user})")
         logger.info(f"Connecting to Redis: {redis_url}")
-        logger.info(f"API-Football key: {'configured' if api_football_key else 'NOT CONFIGURED - direct API calls disabled'}")
+        logger.info("API-Football key: configured")
 
-        # Create server
+        # Create server (database removed)
         _server = SIPAPDataMCP(
-            db_host=db_host,
-            db_port=db_port,
-            db_name=db_name,
-            db_user=db_user,
-            db_password=db_password,
             redis_url=redis_url,
             api_football_key=api_football_key,
         )
@@ -136,12 +100,12 @@ def get_server() -> SIPAPDataMCP:
         # WARM START: Verify connections are still alive
         logger.info("Warm start: Reusing existing MCP server")
 
-        # Check if database pool is still connected
-        if _server.db_client is None or _server.db_client._pool is None:
-            logger.warning("Database connection lost, reconnecting...")
+        # Check if API client is still connected
+        if _server.api_client is None:
+            logger.warning("API client connection lost, reconnecting...")
             loop = get_event_loop()
             loop.run_until_complete(_server._setup())
-            logger.info("Database connection re-established")
+            logger.info("Connections re-established")
 
     return _server
 

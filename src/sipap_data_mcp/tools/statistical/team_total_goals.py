@@ -7,13 +7,13 @@ REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent cac
 """
 
 from typing import Any, Literal
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 from sipap_data_mcp.api.football_client import APIFootballClient
 from .base import BaseStatisticalTool, RecencyWeightCalculator, DataQualityClassifier
 
 
 async def get_home_total_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     team: str | int,
     league: str | int,
     seasons_back: int = 6,
@@ -72,7 +72,7 @@ async def get_home_total_goals(
 
 
 async def get_away_total_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     team: str | int,
     league: str | int,
     seasons_back: int = 6,
@@ -104,7 +104,7 @@ async def get_away_total_goals(
 
 
 async def _get_team_total_goals(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     team: str | int,
     venue: Literal["home", "away"],
     league: str | int,

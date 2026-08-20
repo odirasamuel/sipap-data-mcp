@@ -9,7 +9,7 @@ REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent cac
 from datetime import datetime
 from typing import Any, Literal
 
-import asyncpg
+# asyncpg removed (2026-08-20) - database removed
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 
@@ -44,7 +44,7 @@ def _to_isoformat(date_value: Any) -> str | None:
 
 
 async def get_momentum_streak(
-    pool: asyncpg.Pool | None,
+    pool: Any,
     team: str | int,
     league: str | int,
     match_limit: int = 15,

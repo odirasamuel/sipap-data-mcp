@@ -12,7 +12,7 @@ from uuid import UUID
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 from sipap_data_mcp.api.transformers import calculate_form_from_fixtures, transform_fixtures
-from sipap_data_mcp.database.aurora import AuroraDataClient
+# Database removed (2026-08-20) - import removed
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ async def get_form_data_api(
 
 
 async def query_history(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     team_id: int,
     league_id: int | None = None,
     date_from: str | None = None,
@@ -188,7 +188,7 @@ async def query_history(
 
 
 async def get_form_data(
-    db_client: AuroraDataClient,
+    db_client: Any | None,
     team_id: int,
     num_matches: int = 5,
     league_id: int | None = None,

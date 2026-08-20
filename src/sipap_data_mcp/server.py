@@ -28,7 +28,7 @@ from sipap_data_mcp.api.transformers import (
     transform_team_statistics,
 )
 from sipap_data_mcp.cache.redis import RedisCache
-from sipap_data_mcp.database.aurora import AuroraDataClient
+# Database removed - now using API-Football directly (2026-08-20)
 from sipap_data_mcp.tools import (
     analyze_news_impact,
     form,
@@ -93,53 +93,40 @@ class SIPAPDataMCP(MCPServer):
 
     def __init__(
         self,
-        db_host: str,
-        db_port: int,
-        db_name: str,
-        db_user: str,
-        db_password: str,
         redis_url: str,
-        api_football_key: str | None = None,
+        api_football_key: str,
     ) -> None:
         """Initialize SIPAP Data MCP Server.
 
+        REDESIGNED (2026-08-20): Database removed, uses API-Football directly.
+
         Args:
-            db_host: Aurora cluster endpoint
-            db_port: Database port (typically 5432)
-            db_name: Database name
-            db_user: Database username
-            db_password: Database password
-            redis_url: Redis connection URL
-            api_football_key: API-Football API key (required for direct API access)
+            redis_url: Redis connection URL (for caching)
+            api_football_key: API-Football API key (required)
         """
         super().__init__(
             name="sipap-data-mcp",
-            version="2.0.0"  # Bumped for API-Football redesign
+            version="3.0.0"  # Bumped for database removal
         )
 
         # Store connection parameters
-        self._db_host = db_host
-        self._db_port = db_port
-        self._db_name = db_name
-        self._db_user = db_user
-        self._db_password = db_password
         self._redis_url = redis_url
         self._api_football_key = api_football_key
 
         # Clients (initialized in _setup)
-        self.db_client: AuroraDataClient | None = None
         self.cache: RedisCache | None = None
         self.api_client: APIFootballClient | None = None
 
     async def _setup(self) -> None:
-        """Initialize API client, database and cache connections.
+        """Initialize API client and cache connections.
 
+        REDESIGNED (2026-08-20): Database removed, uses API-Football directly.
         Called automatically when server starts.
-        Establishes connections to API-Football, Aurora and Redis.
+        Establishes connections to API-Football and Redis.
         """
         logger.info(
-            f"Setting up Data MCP connections - DB: {self._db_host}:{self._db_port}/{self._db_name}, "
-            f"Redis: {self._redis_url}, API-Football: {'configured' if self._api_football_key else 'not configured'}"
+            f"Setting up Data MCP connections - Redis: {self._redis_url}, "
+            f"API-Football: configured"
         )
 
         # Create cache client first (needed by API client)
@@ -147,33 +134,20 @@ class SIPAPDataMCP(MCPServer):
         await self.cache.connect()
         logger.info("Redis cache connection established")
 
-        # Create API-Football client if key provided
-        if self._api_football_key:
-            self.api_client = APIFootballClient(
-                api_key=self._api_football_key,
-                cache=self.cache,
-            )
-            await self.api_client.connect()
-            logger.info("API-Football client connection established")
-        else:
-            logger.warning("API-Football key not provided - using database fallback")
-
-        # Create database client (fallback for tools not yet migrated)
-        self.db_client = AuroraDataClient(
-            host=self._db_host,
-            port=self._db_port,
-            database=self._db_name,
-            user=self._db_user,
-            password=self._db_password,
+        # Create API-Football client (required)
+        self.api_client = APIFootballClient(
+            api_key=self._api_football_key,
+            cache=self.cache,
         )
-        await self.db_client.connect()
-        logger.info("Database connection established")
+        await self.api_client.connect()
+        logger.info("API-Football client connection established")
 
         logger.info("Data MCP setup complete")
 
     async def _cleanup(self) -> None:
-        """Close API client, database and cache connections.
+        """Close API client and cache connections.
 
+        REDESIGNED (2026-08-20): Database removed.
         Called automatically when server shuts down.
         Ensures proper resource cleanup.
         """
@@ -184,11 +158,6 @@ class SIPAPDataMCP(MCPServer):
             self.api_client = None
             logger.info("API-Football client connection closed")
 
-        if self.db_client is not None:
-            await self.db_client.close()
-            self.db_client = None
-            logger.info("Database connection closed")
-
         if self.cache is not None:
             await self.cache.close()
             self.cache = None
@@ -196,18 +165,20 @@ class SIPAPDataMCP(MCPServer):
 
         logger.info("Data MCP cleanup complete")
 
-    def _ensure_connections(self) -> tuple[AuroraDataClient, RedisCache]:
-        """Ensure database connections are established.
+    def _ensure_connections(self) -> RedisCache:
+        """Ensure cache connection is established.
+
+        REDESIGNED (2026-08-20): Database removed, only returns cache.
 
         Returns:
-            Tuple of (db_client, cache)
+            RedisCache instance
 
         Raises:
             RuntimeError: If connections not established
         """
-        if self.db_client is None or self.cache is None:
+        if self.cache is None:
             raise RuntimeError("Server not initialized. Call _setup() first.")
-        return self.db_client, self.cache
+        return self.cache
 
     def _ensure_api_client(self) -> APIFootballClient:
         """Ensure API-Football client is connected.
@@ -319,9 +290,9 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with "matches" key containing list of matches
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(get_match_schedule(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             date_from=date_from,
             date_to=date_to,
             status=status,
@@ -353,9 +324,9 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with "match" key containing match details
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(get_match_details(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             match_id=match_id,
             api_client=self.api_client,
         ))
@@ -375,9 +346,9 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with "matches" key containing list of live matches
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(get_live_matches(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             api_client=self.api_client,
         ))
 
@@ -405,9 +376,9 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with "matches" key containing matching matches
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(search_matches(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             query=query,
             api_client=self.api_client,
         ))
@@ -483,10 +454,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with "fixtures", "count", and "filters_applied" keys
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             search_fixtures(
-                db_client=db_client,
+                db_client=None,  # Database removed (2026-08-20)
                 league_ids=league_ids,
                 league_names=league_names,
                 date_from=date_from,
@@ -536,12 +507,12 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with team statistics
         """
-        db_client, cache = self._ensure_connections()
+        cache = self._ensure_connections()
 
         # If API client available, use it (has built-in caching)
         if self.api_client is not None:
             return self._run_async(get_team_stats(
-                db_client=db_client,
+                db_client=None,  # Database removed (2026-08-20)
                 team_id=team_id,
                 league_id=league_id,
                 season=season,
@@ -556,7 +527,7 @@ class SIPAPDataMCP(MCPServer):
 
         # Cache miss - query database
         result = self._run_async(get_team_stats(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             team_id=team_id,
             league_id=league_id,
             season=season)
@@ -596,12 +567,12 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with league standings
         """
-        db_client, cache = self._ensure_connections()
+        cache = self._ensure_connections()
 
         # If API client available, use it (has built-in caching)
         if self.api_client is not None:
             return self._run_async(get_league_table(
-                db_client=db_client,
+                db_client=None,  # Database removed (2026-08-20)
                 league_id=league_id,
                 season=season,
                 api_client=self.api_client,
@@ -615,7 +586,7 @@ class SIPAPDataMCP(MCPServer):
 
         # Cache miss - query database
         result = self._run_async(get_league_table(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             league_id=league_id,
             season=season)
         )
@@ -661,12 +632,12 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with H2H statistics (last 10 matches, wins, draws)
         """
-        db_client, cache = self._ensure_connections()
+        cache = self._ensure_connections()
 
         # If API client available, use it (has built-in caching)
         if self.api_client is not None:
             return self._run_async(get_head_to_head(
-                db_client=db_client,
+                db_client=None,  # Database removed (2026-08-20)
                 home_team_id=home_team_id,
                 away_team_id=away_team_id,
                 api_client=self.api_client,
@@ -684,7 +655,7 @@ class SIPAPDataMCP(MCPServer):
 
         # Cache miss - query database
         result = self._run_async(get_head_to_head(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             home_team_id=home_team_id,
             away_team_id=away_team_id)
         )
@@ -748,10 +719,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with historical match data
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(query_history(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             team_id=team_id,
             league_id=league_id,
             date_from=date_from,
@@ -798,10 +769,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with recent match results
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(get_form_data(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             team_id=team_id,
             num_matches=num_matches,
             league_id=league_id,
@@ -846,7 +817,7 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with betting odds from multiple bookmakers
         """
-        db_client, cache = self._ensure_connections()
+        cache = self._ensure_connections()
         api_client = self._ensure_api_client()
 
         # Try cache first (5-minute TTL - odds update frequently)
@@ -857,7 +828,7 @@ class SIPAPDataMCP(MCPServer):
 
         # Cache miss - query API or database
         result = self._run_async(get_match_odds(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             fixture_id=fixture_id,
             is_live=is_live,
             api_client=api_client)
@@ -900,10 +871,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with odds movement history or None if no data available
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(get_odds_movements(
-            db_client=db_client,
+            db_client=None,  # Database removed (2026-08-20)
             fixture_id=fixture_id,
             time_window=time_window,
             api_client=api_client)
@@ -1055,10 +1026,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with H2H full-time result analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_h2h_full_time_result(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1102,10 +1073,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with H2H goals analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_h2h_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1149,10 +1120,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with BTS probability analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_bts(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1193,10 +1164,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with home team goal-scoring analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_home_total_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 team=team,
                 league=league,
                 seasons_back=seasons_back,
@@ -1236,10 +1207,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with away team goal-scoring analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_away_total_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 team=team,
                 league=league,
                 seasons_back=seasons_back,
@@ -1286,10 +1257,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with H2H halftime result analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_h2h_half_time_result(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1333,10 +1304,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with H2H second-half result analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_h2h_2nd_half_result(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1380,10 +1351,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with HT/FT outcome analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_ht_ft_outcome(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1427,10 +1398,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with halftime goals analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_half_time_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1474,10 +1445,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with second-half goals analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_2nd_half_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1528,10 +1499,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with double chance analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_double_chance(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1582,10 +1553,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with win OR total goals analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_win_or_total_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1637,10 +1608,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with win AND total goals analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_win_and_total_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1689,10 +1660,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with win OR BTS analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_win_or_both_scores(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1740,10 +1711,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with win AND BTS analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_win_and_both_scores(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1791,10 +1762,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with BTS OR multi-goals analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_both_scores_or_multi_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1845,10 +1816,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with no defeat AND total goals analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_no_defeat_and_total_goals(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1897,10 +1868,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with avoid HT defeat analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_avoid_halftime_defeat(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -1948,10 +1919,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with avoid 2nd-half defeat analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_avoid_2nd_half_defeat(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -2000,10 +1971,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with total goals range analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_total_goals_range(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -2047,10 +2018,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with home team either half outcome analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_home_either_half_outcome(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -2094,10 +2065,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with away team either half outcome analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_away_either_half_outcome(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -2141,10 +2112,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with home team to score analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_home_to_score(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -2188,10 +2159,10 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with away team to score analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         return self._run_async(
             statistical.get_away_to_score(
-                pool=db_client._pool,
+                pool=None,  # Database removed (2026-08-20)
                 home_team=home_team,
                 away_team=away_team,
                 league=league,
@@ -2235,11 +2206,11 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with momentum streak analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(
             form.get_momentum_streak(
-                pool=db_client._pool if db_client else None,
+                pool=None,  # Database removed (2026-08-20)
                 team=team_id,
                 league=league_id,
                 match_limit=match_limit,
@@ -2279,11 +2250,11 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with form trajectory analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(
             form.get_form_trajectory(
-                pool=db_client._pool if db_client else None,
+                pool=None,  # Database removed (2026-08-20)
                 team=team_id,
                 league=league_id,
                 match_limit=match_limit,
@@ -2323,11 +2294,11 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with consistency score analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(
             form.get_consistency_score(
-                pool=db_client._pool if db_client else None,
+                pool=None,  # Database removed (2026-08-20)
                 team=team_id,
                 league=league_id,
                 match_limit=match_limit,
@@ -2364,11 +2335,11 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with venue form split analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(
             form.get_venue_form_split(
-                pool=db_client._pool if db_client else None,
+                pool=None,  # Database removed (2026-08-20)
                 team=team_id,
                 league=league_id,
                 match_limit=match_limit,
@@ -2407,11 +2378,11 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with goal scoring form trend analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(
             form.get_goal_scoring_form_trend(
-                pool=db_client._pool if db_client else None,
+                pool=None,  # Database removed (2026-08-20)
                 team=team_id,
                 league=league_id,
                 match_limit=match_limit,
@@ -2451,11 +2422,11 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with defensive form trend analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(
             form.get_defensive_form_trend(
-                pool=db_client._pool if db_client else None,
+                pool=None,  # Database removed (2026-08-20)
                 team=team_id,
                 league=league_id,
                 match_limit=match_limit,
@@ -2495,11 +2466,11 @@ class SIPAPDataMCP(MCPServer):
         Returns:
             Dictionary with pressure performance analysis
         """
-        db_client, _ = self._ensure_connections()
+        self._ensure_connections()
         api_client = self._ensure_api_client()
         return self._run_async(
             form.get_pressure_performance(
-                pool=db_client._pool if db_client else None,
+                pool=None,  # Database removed (2026-08-20)
                 team=team_id,
                 league=league_id,
                 match_limit=match_limit,
