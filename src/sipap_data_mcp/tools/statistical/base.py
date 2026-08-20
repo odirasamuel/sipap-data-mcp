@@ -170,6 +170,12 @@ class BaseStatisticalTool:
                 except ValueError:
                     pass
 
+            # Extract halftime scores from score object
+            score = item.get("score", {})
+            halftime = score.get("halftime", {})
+            ht_home = halftime.get("home")
+            ht_away = halftime.get("away")
+
             all_matches.append({
                 "id": fixture.get("id"),
                 "scheduled_at": date_str,
@@ -179,6 +185,8 @@ class BaseStatisticalTool:
                 "away_team_id": teams.get("away", {}).get("id"),
                 "home_score": goals.get("home"),
                 "away_score": goals.get("away"),
+                "ht_home_score": ht_home,
+                "ht_away_score": ht_away,
                 "status": "finished",
                 "season_year": season_year,
             })
