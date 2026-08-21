@@ -735,17 +735,38 @@ async def search_fixtures(
             all_fixtures = []
 
     else:
-        # No league filter requested - query all leagues
+        # No league filter requested - query popular leagues
         logger.info("Querying all leagues (no league filter applied)")
-        fixtures = await db_client.get_matches(
-            date_from=date_from,
-            date_to=date_to,
-            status=status,
-            league_id=None,
-            has_odds=has_odds,
-        )
-        logger.info(f"Found {len(fixtures)} fixtures across all leagues")
-        all_fixtures = fixtures
+
+        # Use API client for popular leagues if available (database removed 2026-08-20)
+        if api_client is not None:
+            # Query top 5 European leagues + Champions League
+            popular_league_ids = [39, 140, 78, 135, 61, 2]  # EPL, La Liga, Bundesliga, Serie A, Ligue 1, UCL
+            logger.info(f"Using API-Football for popular leagues: {popular_league_ids}")
+            result = await search_fixtures_api(
+                api_client=api_client,
+                league_ids=popular_league_ids,
+                date_from=date_from,
+                date_to=date_to,
+                status=status,
+                limit=limit,
+            )
+            all_fixtures = result.get("fixtures", [])
+            logger.info(f"Found {len(all_fixtures)} fixtures from popular leagues via API")
+        elif db_client is not None:
+            # Fallback to database if available
+            fixtures = await db_client.get_matches(
+                date_from=date_from,
+                date_to=date_to,
+                status=status,
+                league_id=None,
+                has_odds=has_odds,
+            )
+            logger.info(f"Found {len(fixtures)} fixtures across all leagues")
+            all_fixtures = fixtures
+        else:
+            logger.warning("No API client or database available for fixture search")
+            all_fixtures = []
 
     # Apply limit
     limited_fixtures = all_fixtures[:limit]
