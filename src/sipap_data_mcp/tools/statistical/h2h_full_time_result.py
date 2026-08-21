@@ -147,9 +147,10 @@ async def get_h2h_full_time_result(
         }
 
     # Helper to determine result from home team perspective
-    def get_result(match: dict[str, Any]) -> str:
+    def get_result(match: dict[str, Any]) -> str | None:
         """
         Returns 'home_win', 'draw', or 'away_win' from home team perspective.
+        Returns None if scores are not available (e.g., upcoming matches).
 
         Accounts for reversed fixtures (home_team might be away in this match).
         """
@@ -159,8 +160,12 @@ async def get_h2h_full_time_result(
         else:
             is_home = match.get('home_team') == home_team_identifier
 
-        home_score = match['home_score']
-        away_score = match['away_score']
+        home_score = match.get('home_score')
+        away_score = match.get('away_score')
+
+        # Skip matches without scores (upcoming or cancelled)
+        if home_score is None or away_score is None:
+            return None
 
         if is_home:
             # Our home team is actually home in this match
@@ -180,11 +185,15 @@ async def get_h2h_full_time_result(
             else:
                 return 'draw'
 
-    # Count results in all matches
-    total_matches = len(all_matches)
-    home_wins = sum(1 for m in all_matches if get_result(m) == 'home_win')
-    draws = sum(1 for m in all_matches if get_result(m) == 'draw')
-    away_wins = sum(1 for m in all_matches if get_result(m) == 'away_win')
+    # Filter to only matches with valid results (exclude upcoming/cancelled)
+    valid_matches = [m for m in all_matches if get_result(m) is not None]
+    valid_recent = [m for m in recent if get_result(m) is not None]
+
+    # Count results in valid matches only
+    total_matches = len(valid_matches)
+    home_wins = sum(1 for m in valid_matches if get_result(m) == 'home_win')
+    draws = sum(1 for m in valid_matches if get_result(m) == 'draw')
+    away_wins = sum(1 for m in valid_matches if get_result(m) == 'away_win')
 
     # Calculate base probabilities
     home_win_prob = home_wins / total_matches if total_matches > 0 else 0.0
@@ -213,17 +222,17 @@ async def get_h2h_full_time_result(
         condition_fn=lambda m: get_result(m) == 'away_win'
     )
 
-    # Current form analysis (recent matches only)
-    recent_home_wins = sum(1 for m in recent if get_result(m) == 'home_win')
-    recent_draws = sum(1 for m in recent if get_result(m) == 'draw')
-    recent_away_wins = sum(1 for m in recent if get_result(m) == 'away_win')
+    # Current form analysis (recent matches with valid results only)
+    recent_home_wins = sum(1 for m in valid_recent if get_result(m) == 'home_win')
+    recent_draws = sum(1 for m in valid_recent if get_result(m) == 'draw')
+    recent_away_wins = sum(1 for m in valid_recent if get_result(m) == 'away_win')
 
     current_form = {
-        "recent_matches": len(recent),
+        "recent_matches": len(valid_recent),
         "home_wins": recent_home_wins,
         "draws": recent_draws,
         "away_wins": recent_away_wins,
-        "home_win_probability": round(recent_home_wins / len(recent), 4) if recent else 0.0
+        "home_win_probability": round(recent_home_wins / len(valid_recent), 4) if valid_recent else 0.0
     }
 
     # Group by season
