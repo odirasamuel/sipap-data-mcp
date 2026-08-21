@@ -14,7 +14,9 @@ from uuid import UUID
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 from sipap_data_mcp.api.transformers import transform_fixtures
-# Database removed (2026-08-20) - import removed
+
+# League reference from sipap-common (ID-first architecture)
+from sipap_common.data.league_reference import LEAGUE_REFERENCE
 
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
@@ -735,24 +737,25 @@ async def search_fixtures(
             all_fixtures = []
 
     else:
-        # No league filter requested - query popular leagues
+        # No league filter requested - query all supported leagues from LEAGUE_REFERENCE
         logger.info("Querying all leagues (no league filter applied)")
 
-        # Use API client for popular leagues if available (database removed 2026-08-20)
+        # Use API client for all supported leagues (database removed 2026-08-20)
         if api_client is not None:
-            # Query top 5 European leagues + Champions League
-            popular_league_ids = [39, 140, 78, 135, 61, 2]  # EPL, La Liga, Bundesliga, Serie A, Ligue 1, UCL
-            logger.info(f"Using API-Football for popular leagues: {popular_league_ids}")
+            # Get all league IDs from sipap-common LEAGUE_REFERENCE (imported at module level)
+            all_league_ids = [league["id"] for league in LEAGUE_REFERENCE]
+            logger.info(f"Using API-Football for all {len(all_league_ids)} supported leagues from LEAGUE_REFERENCE")
+
             result = await search_fixtures_api(
                 api_client=api_client,
-                league_ids=popular_league_ids,
+                league_ids=all_league_ids,
                 date_from=date_from,
                 date_to=date_to,
                 status=status,
                 limit=limit,
             )
             all_fixtures = result.get("fixtures", [])
-            logger.info(f"Found {len(all_fixtures)} fixtures from popular leagues via API")
+            logger.info(f"Found {len(all_fixtures)} fixtures from all supported leagues via API")
         elif db_client is not None:
             # Fallback to database if available
             fixtures = await db_client.get_matches(
