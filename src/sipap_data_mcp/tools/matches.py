@@ -2,15 +2,14 @@
 
 Provides tools for retrieving match schedules, details, live matches, and search.
 
-REDESIGNED (2026-08-19): Now supports direct API-Football calls with intelligent caching.
-When APIFootballClient is provided, tools call API-Football directly instead of Aurora database.
+REDESIGNED (2026-08-20): Database removed, uses API-Football exclusively.
+All match data is fetched directly from API-Football with built-in caching via Redis.
 """
 
 import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from uuid import UUID
 
 from sipap_data_mcp.api.football_client import APIFootballClient
 from sipap_data_mcp.api.transformers import transform_fixtures
@@ -120,7 +119,7 @@ async def get_match_schedule_api(
 
 
 async def get_match_schedule(
-    db_client: Any | None,
+    db_client: Any | None,  # DEPRECATED (2026-08-20): Database removed
     date_from: str,
     date_to: str,
     status: str = "scheduled",
@@ -129,29 +128,27 @@ async def get_match_schedule(
 ) -> dict[str, Any]:
     """Get match schedule for specified date range.
 
-    REDESIGNED (2026-08-19): Now supports API-Football direct calls.
-    If api_client is provided, calls API-Football directly.
-    Otherwise falls back to database query.
+    REDESIGNED (2026-08-20): Database removed, uses API-Football exclusively.
 
     Args:
-        db_client: Database client instance (fallback)
+        db_client: DEPRECATED - No longer used (database removed 2026-08-20)
         date_from: Start date in ISO 8601 format (YYYY-MM-DD)
         date_to: End date in ISO 8601 format (YYYY-MM-DD)
         status: Match status filter (scheduled, live, finished)
-        league_id: Optional league filter (UUID for DB, int for API)
-        api_client: Optional API-Football client (preferred)
+        league_id: Optional league filter (API-Football league ID as string)
+        api_client: API-Football client (REQUIRED)
 
     Returns:
         Dictionary with "matches" key containing list of matches
 
     Raises:
-        ValueError: If date format is invalid
-        RuntimeError: If database connection fails
+        RuntimeError: If api_client is not provided
 
     Example:
         ```python
         result = await get_match_schedule(
-            db_client=client,
+            db_client=None,
+            api_client=api,
             date_from="2026-07-05",
             date_to="2026-07-12",
             status="scheduled"
@@ -159,35 +156,27 @@ async def get_match_schedule(
         # Returns: {"matches": [...]}
         ```
     """
-    # Use API client if available
-    if api_client is not None:
-        # Convert league_id to int if it looks like an API-Football ID
-        api_league_id = None
-        if league_id is not None:
-            try:
-                api_league_id = int(league_id)
-            except ValueError:
-                # It's a UUID or name, can't use directly with API
-                logger.warning(f"league_id '{league_id}' is not an integer, skipping API league filter")
-
-        return await get_match_schedule_api(
-            api_client=api_client,
-            date_from=date_from,
-            date_to=date_to,
-            status=status,
-            league_id=api_league_id,
+    # API client is required (database removed 2026-08-20)
+    if api_client is None:
+        raise RuntimeError(
+            "get_match_schedule requires api_client (database removed 2026-08-20)"
         )
 
-    # Fallback to database
-    logger.info("get_match_schedule: using database fallback")
-    matches = await db_client.get_matches(
+    # Convert league_id to int if it looks like an API-Football ID
+    api_league_id = None
+    if league_id is not None:
+        try:
+            api_league_id = int(league_id)
+        except ValueError:
+            logger.warning(f"league_id '{league_id}' is not an integer, skipping league filter")
+
+    return await get_match_schedule_api(
+        api_client=api_client,
         date_from=date_from,
         date_to=date_to,
         status=status,
-        league_id=league_id
+        league_id=api_league_id,
     )
-
-    return {"matches": matches}
 
 
 async def get_match_details_api(
@@ -214,58 +203,49 @@ async def get_match_details_api(
 
 
 async def get_match_details(
-    db_client: Any | None,
+    db_client: Any | None,  # DEPRECATED (2026-08-20): Database removed
     match_id: str,
     api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get detailed information for a specific match.
 
-    REDESIGNED (2026-08-19): Supports API-Football direct calls.
-    If match_id is an integer (API-Football fixture ID) and api_client is provided,
-    calls API-Football directly.
+    REDESIGNED (2026-08-20): Database removed, uses API-Football exclusively.
 
     Args:
-        db_client: Database client instance (fallback)
-        match_id: Match UUID or API-Football fixture ID (integer string)
-        api_client: Optional API-Football client (preferred)
+        db_client: DEPRECATED - No longer used (database removed 2026-08-20)
+        match_id: API-Football fixture ID (integer or string representation)
+        api_client: API-Football client (REQUIRED)
 
     Returns:
         Dictionary with "match" key containing match details
 
     Raises:
-        ValueError: If match_id is not valid or match not found
+        RuntimeError: If api_client is not provided
+        ValueError: If match_id is not a valid integer or match not found
 
     Example:
         ```python
         result = await get_match_details(
-            db_client=client,
-            match_id="550e8400-e29b-41d4-a716-446655440000"
+            db_client=None,
+            api_client=api,
+            match_id="1234567"
         )
         # Returns: {"match": {...}}
         ```
     """
-    # Check if match_id is an integer (API-Football fixture ID)
-    if api_client is not None:
-        try:
-            fixture_id = int(match_id)
-            return await get_match_details_api(api_client, fixture_id)
-        except ValueError:
-            # Not an integer, might be a UUID - continue to DB fallback
-            pass
+    # API client is required (database removed 2026-08-20)
+    if api_client is None:
+        raise RuntimeError(
+            "get_match_details requires api_client (database removed 2026-08-20)"
+        )
 
-    # Fallback to database - validate UUID format
+    # Convert match_id to integer (API-Football fixture ID)
     try:
-        UUID(match_id)
+        fixture_id = int(match_id)
     except ValueError as e:
-        raise ValueError(f"Invalid match ID: {match_id}") from e
+        raise ValueError(f"Invalid match ID: {match_id} (must be an API-Football fixture ID)") from e
 
-    # Query database for single match
-    match = await db_client.get_match(match_id=match_id)
-
-    if match is None:
-        raise ValueError(f"Match not found: {match_id}")
-
-    return {"match": match}
+    return await get_match_details_api(api_client, fixture_id)
 
 
 async def get_live_matches_api(
@@ -287,45 +267,37 @@ async def get_live_matches_api(
 
 
 async def get_live_matches(
-    db_client: Any | None,
+    db_client: Any | None,  # DEPRECATED (2026-08-20): Database removed
     api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Get all currently live matches.
 
-    REDESIGNED (2026-08-19): Supports API-Football direct calls for real-time data.
-    API-Football provides more accurate live match data with real-time updates.
+    REDESIGNED (2026-08-20): Database removed, uses API-Football exclusively.
+    API-Football provides real-time live match data.
 
     Args:
-        db_client: Database client instance (fallback)
-        api_client: Optional API-Football client (preferred for live data)
+        db_client: DEPRECATED - No longer used (database removed 2026-08-20)
+        api_client: API-Football client (REQUIRED)
 
     Returns:
         Dictionary with "matches" key containing list of live matches
 
+    Raises:
+        RuntimeError: If api_client is not provided
+
     Example:
         ```python
-        result = await get_live_matches(db_client=client)
+        result = await get_live_matches(db_client=None, api_client=api)
         # Returns: {"matches": [...]}
         ```
     """
-    # Use API client for live matches (more accurate real-time data)
-    if api_client is not None:
-        return await get_live_matches_api(api_client)
+    # API client is required (database removed 2026-08-20)
+    if api_client is None:
+        raise RuntimeError(
+            "get_live_matches requires api_client (database removed 2026-08-20)"
+        )
 
-    # Fallback to database
-    logger.info("get_live_matches: using database fallback")
-    now = datetime.now(UTC)
-    date_from = now.date().isoformat()
-    date_to = (now.date() + timedelta(days=1)).isoformat()
-
-    matches = await db_client.get_matches(
-        date_from=date_from,
-        date_to=date_to,
-        status="live",
-        league_id=None
-    )
-
-    return {"matches": matches}
+    return await get_live_matches_api(api_client)
 
 
 async def search_matches_api(
@@ -412,31 +384,33 @@ async def search_matches_api(
 
 
 async def search_matches(
-    db_client: Any | None,
+    db_client: Any | None,  # DEPRECATED (2026-08-20): Database removed
     query: str,
     api_client: APIFootballClient | None = None,
 ) -> dict[str, Any]:
     """Search for matches by team name or other criteria.
 
-    REDESIGNED (2026-08-19): Supports API-Football direct calls.
+    REDESIGNED (2026-08-20): Database removed, uses API-Football exclusively.
     API-Football search is team-based - finds teams matching the query
     and returns their recent fixtures.
 
     Args:
-        db_client: Database client instance (fallback)
+        db_client: DEPRECATED - No longer used (database removed 2026-08-20)
         query: Search query string (team name)
-        api_client: Optional API-Football client (preferred)
+        api_client: API-Football client (REQUIRED)
 
     Returns:
         Dictionary with "matches" key containing list of matching matches
 
     Raises:
+        RuntimeError: If api_client is not provided
         ValueError: If query is empty
 
     Example:
         ```python
         result = await search_matches(
-            db_client=client,
+            db_client=None,
+            api_client=api,
             query="Arsenal"
         )
         # Returns: {"matches": [...]}
@@ -446,15 +420,13 @@ async def search_matches(
     if not query or query.strip() == "":
         raise ValueError("Query cannot be empty")
 
-    # Use API client if available
-    if api_client is not None:
-        return await search_matches_api(api_client, query)
+    # API client is required (database removed 2026-08-20)
+    if api_client is None:
+        raise RuntimeError(
+            "search_matches requires api_client (database removed 2026-08-20)"
+        )
 
-    # Fallback to database
-    logger.info(f"search_matches: using database fallback for query '{query}'")
-    matches = await db_client.search_matches(query=query)
-
-    return {"matches": matches}
+    return await search_matches_api(api_client, query)
 
 
 # League name mapping for user-friendly queries
@@ -592,7 +564,7 @@ async def search_fixtures_api(
 
 
 async def search_fixtures(
-    db_client: Any | None,
+    db_client: Any | None,  # DEPRECATED (2026-08-20): Database removed, kept for signature compatibility
     league_ids: list[int] | None = None,
     league_names: list[str] | None = None,
     date_from: str | None = None,
@@ -604,33 +576,31 @@ async def search_fixtures(
 ) -> dict[str, Any]:
     """Search for fixtures with flexible filtering.
 
-    REDESIGNED (2026-08-19): Supports API-Football direct calls.
-    When api_client is provided, calls API-Football directly for fresher data.
+    REDESIGNED (2026-08-20): Database removed, uses API-Football exclusively.
+    API-Football provides real-time fixture data with built-in caching.
 
     This tool provides advanced fixture search with:
     - League filtering by API-Football IDs (preferred) or user-friendly names
     - Date range filtering with sensible defaults (next 7 days if not specified)
     - Status filtering (scheduled, live, finished)
-    - Odds availability filtering (only matches with bookmaker odds)
     - Result limit
 
     ID-FIRST ARCHITECTURE:
-    Prefer using league_ids (API-Football IDs) over league_names for unambiguous resolution.
+    Use league_ids (API-Football IDs) for unambiguous resolution.
     - league_ids: [140, 39] → La Liga (Spain), Premier League (England)
     - Eliminates string matching ambiguity (e.g., "Premier League" exists in multiple countries)
 
     Args:
-        db_client: Database client instance (fallback)
+        db_client: DEPRECATED - No longer used (database removed 2026-08-20)
         league_ids: List of API-Football league IDs (e.g., [140, 39] for La Liga, Premier League)
-                   PREFERRED - Use IDs for unambiguous resolution.
-        league_names: LEGACY - List of user-friendly league names (e.g., ["Premier League", "LaLiga"])
-                     Only used if league_ids is not provided.
+                   REQUIRED - Use IDs for unambiguous resolution.
+        league_names: LEGACY - List of user-friendly league names. Converted to league_ids internally.
         date_from: Start date in ISO 8601 format (YYYY-MM-DD). Defaults to today.
         date_to: End date in ISO 8601 format (YYYY-MM-DD). Defaults to today + 7 days.
         status: Match status filter (scheduled, live, finished). Default: "scheduled"
-        has_odds: Only return matches with bookmaker odds available. Default: True
+        has_odds: DEPRECATED - No longer used (odds filtering done post-query if needed)
         limit: Maximum number of fixtures to return. Default: 100
-        api_client: Optional API-Football client (preferred for direct API calls)
+        api_client: API-Football client (REQUIRED)
 
     Returns:
         Dictionary with:
@@ -638,10 +608,13 @@ async def search_fixtures(
         - "count": Number of fixtures returned
         - "filters_applied": Dictionary showing what filters were used
 
+    Raises:
+        RuntimeError: If api_client is not provided
+
     Example:
         ```python
         result = await search_fixtures(
-            db_client=client,
+            db_client=None,
             api_client=api,
             league_ids=[140, 39],  # La Liga + Premier League
             date_from="2026-08-03",
@@ -657,21 +630,16 @@ async def search_fixtures(
             "date_from": date_from,
             "date_to": date_to,
             "status": status,
-            "has_odds": has_odds,
             "limit": limit,
             "api_client": "provided" if api_client else "not provided",
         }
     )
 
-    # Use API client if available and league_ids provided
-    if api_client is not None and league_ids:
-        return await search_fixtures_api(
-            api_client=api_client,
-            league_ids=league_ids,
-            date_from=date_from,
-            date_to=date_to,
-            status=status,
-            limit=limit,
+    # API client is now required (database removed 2026-08-20)
+    if api_client is None:
+        raise RuntimeError(
+            "search_fixtures requires api_client (database removed 2026-08-20). "
+            "Ensure API-Football client is initialized."
         )
 
     # Apply date defaults
@@ -682,112 +650,77 @@ async def search_fixtures(
 
     logger.info(f"Date range after defaults: {date_from} to {date_to}")
 
-    # Query database for each league (if specified) or all leagues
-    # The has_odds filtering is done at the database level via SQL WHERE clause
-    all_fixtures: list[dict[str, Any]] = []
+    # Resolve league_ids from league_names if needed (LEGACY compatibility)
+    resolved_league_ids: list[int] = []
 
-    # NEW: ID-FIRST architecture - use API-Football IDs if provided
     if league_ids:
-        # PRIMARY PATH: Use API-Football IDs for unambiguous resolution
-        logger.info(f"Using ID-first resolution with {len(league_ids)} API-Football IDs: {league_ids}")
-        for ext_id in league_ids:
-            logger.debug(f"Querying league by external_id: {ext_id}")
-            fixtures = await db_client.get_matches_by_external_league_id(
-                external_league_id=str(ext_id),
-                date_from=date_from,
-                date_to=date_to,
-                status=status,
-                has_odds=has_odds,
-            )
-            logger.info(f"League ID {ext_id}: found {len(fixtures)} fixtures")
-            all_fixtures.extend(fixtures)
+        # PRIMARY PATH: Use API-Football IDs directly
+        resolved_league_ids = league_ids
+        logger.info(f"Using {len(resolved_league_ids)} API-Football league IDs: {resolved_league_ids}")
 
-    # LEGACY PATH: Use league names if IDs not provided (for backward compatibility)
     elif league_names:
-        # Map league names to canonical names for ILIKE matching
-        canonical_names: list[str] = []
+        # LEGACY PATH: Convert league names to IDs using sipap-common mappings
+        logger.info(f"Converting {len(league_names)} league names to IDs")
         for name in league_names:
             canonical = map_league_name_to_id(name)
-            logger.debug(f"League name mapping: '{name}' → '{canonical}'")
             if canonical:
-                canonical_names.append(canonical)
+                # Look up the ID from LEAGUE_REFERENCE
+                for league in LEAGUE_REFERENCE:
+                    if league["name"].lower() == canonical.lower():
+                        resolved_league_ids.append(league["id"])
+                        logger.debug(f"League name '{name}' → ID {league['id']}")
+                        break
             else:
                 logger.warning(f"Unknown league name: '{name}' (skipping)")
 
-        if canonical_names:
-            logger.info(f"Using legacy name resolution: {canonical_names}")
-            for canonical_name in canonical_names:
-                logger.debug(f"Querying league by name: {canonical_name}")
-                fixtures = await db_client.get_matches(
-                    date_from=date_from,
-                    date_to=date_to,
-                    status=status,
-                    league_id=canonical_name,
-                    has_odds=has_odds,
-                )
-                logger.info(f"League '{canonical_name}': found {len(fixtures)} fixtures")
-                all_fixtures.extend(fixtures)
-        else:
-            # CRITICAL: User requested specific leagues but ALL mappings failed
-            # DO NOT silently return all fixtures - return 0 to trigger fallback
+        if not resolved_league_ids:
             logger.warning(
-                f"User requested leagues {league_names} but no valid mappings found. "
-                f"Returning 0 fixtures to trigger fallback."
+                f"User requested leagues {league_names} but no valid IDs found. "
+                f"Returning 0 fixtures."
             )
-            all_fixtures = []
+            return _convert_decimals_to_float({
+                "fixtures": [],
+                "count": 0,
+                "filters_applied": {
+                    "league_names": league_names,
+                    "league_ids": None,
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "status": status,
+                    "limit": limit,
+                    "error": "No valid league IDs resolved from names",
+                }
+            })
 
     else:
-        # No league filter requested - query all supported leagues from LEAGUE_REFERENCE
-        logger.info("Querying all leagues (no league filter applied)")
+        # No league filter - query all supported leagues from LEAGUE_REFERENCE
+        resolved_league_ids = [league["id"] for league in LEAGUE_REFERENCE]
+        logger.info(f"No league filter - using all {len(resolved_league_ids)} leagues from LEAGUE_REFERENCE")
 
-        # Use API client for all supported leagues (database removed 2026-08-20)
-        if api_client is not None:
-            # Get all league IDs from sipap-common LEAGUE_REFERENCE (imported at module level)
-            all_league_ids = [league["id"] for league in LEAGUE_REFERENCE]
-            logger.info(f"Using API-Football for all {len(all_league_ids)} supported leagues from LEAGUE_REFERENCE")
-
-            result = await search_fixtures_api(
-                api_client=api_client,
-                league_ids=all_league_ids,
-                date_from=date_from,
-                date_to=date_to,
-                status=status,
-                limit=limit,
-            )
-            all_fixtures = result.get("fixtures", [])
-            logger.info(f"Found {len(all_fixtures)} fixtures from all supported leagues via API")
-        elif db_client is not None:
-            # Fallback to database if available
-            fixtures = await db_client.get_matches(
-                date_from=date_from,
-                date_to=date_to,
-                status=status,
-                league_id=None,
-                has_odds=has_odds,
-            )
-            logger.info(f"Found {len(fixtures)} fixtures across all leagues")
-            all_fixtures = fixtures
-        else:
-            logger.warning("No API client or database available for fixture search")
-            all_fixtures = []
-
-    # Apply limit
-    limited_fixtures = all_fixtures[:limit]
-    logger.info(
-        f"Results: {len(all_fixtures)} total, returning {len(limited_fixtures)} after limit"
+    # Call API-Football for fixtures
+    result = await search_fixtures_api(
+        api_client=api_client,
+        league_ids=resolved_league_ids,
+        date_from=date_from,
+        date_to=date_to,
+        status=status,
+        limit=limit,
     )
 
-    # Return results with metadata (convert Decimal to float for JSON serialization)
+    fixtures = result.get("fixtures", [])
+    logger.info(f"Found {len(fixtures)} fixtures via API-Football")
+
+    # Return results with metadata
     return _convert_decimals_to_float({
-        "fixtures": limited_fixtures,
-        "count": len(limited_fixtures),
+        "fixtures": fixtures,
+        "count": len(fixtures),
         "filters_applied": {
             "league_names": league_names,
-            "league_ids": league_ids,
+            "league_ids": resolved_league_ids,
             "date_from": date_from,
             "date_to": date_to,
             "status": status,
-            "has_odds": has_odds,
             "limit": limit,
+            "source": "api_football",
         }
     })
