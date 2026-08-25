@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-SIPAP Data MCP **PRODUCTION COMPLETE** through Day 6 with:
+Valo Data MCP **PRODUCTION COMPLETE** through Day 6 with:
 - **11 MCP tools** callable via JSON-RPC 2.0 protocol ✅
 - **99 tests** passing (100% pass rate) ✅
 - **69% coverage** overall
@@ -218,7 +218,7 @@ ruff check src/ tests/ examples/
 **Examples Created**:
 0. **mcp_client.py** (295 lines) ⭐ **NEW (Day 6) - PRIMARY EXAMPLE**
    - JSON-RPC 2.0 protocol demonstration
-   - How AI agents (Claude, GPT-4) call SIPAP tools
+   - How AI agents (Claude, GPT-4) call Valo tools
    - List all available tools via tools/list
    - Call tools via tools/call
    - Handle responses in MCP content format

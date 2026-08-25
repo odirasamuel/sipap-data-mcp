@@ -151,7 +151,7 @@ export DB_PASSWORD='your-password'
 **Expected Output (after migration 002 applied):**
 ```
 ==========================================
-SIPAP Database State Validation
+Valo Database State Validation
 ==========================================
 
 ✅ Database connection successful
@@ -208,9 +208,9 @@ Migration 002 (Statistical Indexes):
 
 2. **Test statistical tools** with real queries:
    ```python
-   from sipap_data_mcp.server import SIPAPDataMCP
+   from sipap_data_mcp.server import ValoDataMCP
 
-   server = SIPAPDataMCP(...)
+   server = ValoDataMCP(...)
    await server._setup()
 
    # Test H2H query (should use idx_matches_h2h_home_away)

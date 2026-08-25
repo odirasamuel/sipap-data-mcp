@@ -1,11 +1,11 @@
-# SIPAP Data MCP Examples
+# Valo Data MCP Examples
 
 This directory contains working examples demonstrating how to use the sipap-data-mcp package.
 
 ## Prerequisites
 
 1. Python 3.12+
-2. PostgreSQL database with SIPAP schema
+2. PostgreSQL database with Valo schema
 3. Install sipap-data-mcp:
    ```bash
    pip install sipap-data-mcp
@@ -35,7 +35,7 @@ Demonstrates how to:
 - Call tools using JSON-RPC protocol
 - Handle MCP content format responses
 - Error handling for invalid tools and parameters
-- **This is the primary way AI agents (Claude, GPT-4) access SIPAP data**
+- **This is the primary way AI agents (Claude, GPT-4) access Valo data**
 
 ### 1. Match Schedule (`match_schedule.py`)
 Demonstrates how to:

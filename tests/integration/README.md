@@ -1,6 +1,6 @@
 # Integration Tests
 
-Integration tests for SIPAP Data MCP that run against deployed AWS infrastructure.
+Integration tests for Valo Data MCP that run against deployed AWS infrastructure.
 
 ## Prerequisites
 

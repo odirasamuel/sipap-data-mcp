@@ -188,12 +188,12 @@ Example:
 ### Server Configuration
 
 **File**: `src/sipap_data_mcp/server.py`
-**Class**: `SIPAPDataMCP`
+**Class**: `ValoDataMCP`
 **Parent**: `MCPServer` (from `sipap_mcp`)
 
 **Docstring updated**:
 ```python
-"""SIPAP Data MCP Server.
+"""Valo Data MCP Server.
 
 Provides JSON-RPC 2.0 compliant access to sports data via 43 MCP tools:
 - 5 match tools

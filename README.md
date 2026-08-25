@@ -1,4 +1,4 @@
-# SIPAP Data MCP Server
+# Valo Data MCP Server
 
 Consolidated data access MCP (Model Context Protocol) server providing read-only access to sports data stored in Aurora PostgreSQL.
 
@@ -98,7 +98,7 @@ sipap-data-mcp/
 
 ## License
 
-Proprietary - SIPAP Project
+Proprietary - Valo Project
 
 ## Status
 
