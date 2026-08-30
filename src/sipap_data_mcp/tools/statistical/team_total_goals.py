@@ -4,6 +4,7 @@ Team total goals analysis tools.
 Analyzes home and away team goal-scoring capabilities.
 
 REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
+IMPROVED (2026-08-29): Updated weighting algorithm with sample guards and breakdown.
 """
 
 from typing import Any, Literal
@@ -199,7 +200,7 @@ async def _get_team_total_goals(
         "4+_goals": round(goals_4_plus / total_matches, 4) if total_matches > 0 else 0.0
     }
 
-    # Calculate over thresholds
+    # Calculate over thresholds (raw counts)
     over_0_5_count = sum(1 for m in all_matches if get_goals_scored(m) > 0.5)
     over_1_5_count = sum(1 for m in all_matches if get_goals_scored(m) > 1.5)
     over_2_5_count = sum(1 for m in all_matches if get_goals_scored(m) > 2.5)
@@ -210,27 +211,69 @@ async def _get_team_total_goals(
         "over_2.5": round(over_2_5_count / total_matches, 4) if total_matches > 0 else 0.0
     }
 
+    # Calculate weighted over thresholds with recency bias (now returns tuple)
+    weighted_over_0_5, _ = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: get_goals_scored(m) > 0.5
+    )
+    weighted_over_1_5, _ = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: get_goals_scored(m) > 1.5
+    )
+    weighted_over_2_5, _ = RecencyWeightCalculator.calculate(
+        recent_matches=recent,
+        last_season=last_season,
+        older_seasons=older,
+        condition_fn=lambda m: get_goals_scored(m) > 2.5
+    )
+
+    weighted_over_thresholds = {
+        "over_0.5": weighted_over_0_5,
+        "over_1.5": weighted_over_1_5,
+        "over_2.5": weighted_over_2_5
+    }
+
     # Calculate minimum goals capability (25th percentile)
     goals_sorted = sorted([get_goals_scored(m) for m in all_matches])
     percentile_25_index = int(len(goals_sorted) * 0.25)
     minimum_goals_capability = goals_sorted[percentile_25_index] if goals_sorted else 0.0
 
-    # Calculate weighted average goals with recency bias
-    def get_avg_goals(matches: list[dict[str, Any]]) -> float:
-        if not matches:
-            return 0.0
+    # Calculate weighted average goals with recency bias and sample guards
+    MIN_SAMPLES_FOR_WEIGHTING = 3  # Minimum matches for a bucket to count
+
+    def get_avg_goals(matches: list[dict[str, Any]]) -> tuple[float, bool]:
+        """Returns (average_goals, is_valid) where is_valid is True if >= MIN_SAMPLES."""
+        if len(matches) < MIN_SAMPLES_FOR_WEIGHTING:
+            return (0.0, False)
         total = sum(get_goals_scored(m) for m in matches)
-        return total / len(matches)
+        return (total / len(matches), True)
 
-    recent_avg = get_avg_goals(recent)
-    last_season_avg = get_avg_goals(last_season)
-    older_avg = get_avg_goals(older)
+    recent_avg, recent_valid = get_avg_goals(recent)
+    last_season_avg, last_season_valid = get_avg_goals(last_season)
+    older_avg, older_valid = get_avg_goals(older)
 
-    weighted_avg = (
-        recent_avg * 0.50 +
-        last_season_avg * 0.30 +
-        older_avg * 0.20
-    )
+    # Build weighted average from valid buckets only
+    valid_buckets = []
+    default_weights = {"recent": 0.50, "last_season": 0.30, "older": 0.20}
+
+    if recent_valid:
+        valid_buckets.append(("recent", recent_avg, default_weights["recent"]))
+    if last_season_valid:
+        valid_buckets.append(("last_season", last_season_avg, default_weights["last_season"]))
+    if older_valid:
+        valid_buckets.append(("older", older_avg, default_weights["older"]))
+
+    if valid_buckets:
+        # Normalize weights to sum to 1.0
+        total_weight = sum(w for _, _, w in valid_buckets)
+        weighted_avg = sum(avg * (w / total_weight) for _, avg, w in valid_buckets)
+    else:
+        # Fallback to simple average
+        weighted_avg = average_goals
 
     # Current form analysis
     recent_goals = sum(get_goals_scored(m) for m in recent)
@@ -256,6 +299,7 @@ async def _get_team_total_goals(
             "minimum_goals_capability": round(minimum_goals_capability, 2),
             "scoring_probabilities": scoring_probabilities,
             "over_thresholds": over_thresholds,
+            "weighted_over_thresholds": weighted_over_thresholds,  # Recency weighted (50/30/20 with sample guards)
             "weighted_average_goals": round(weighted_avg, 2),
             "current_form": current_form
         },

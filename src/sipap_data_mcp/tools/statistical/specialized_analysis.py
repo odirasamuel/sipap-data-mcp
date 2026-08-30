@@ -7,6 +7,7 @@ Provides 5 specialized tools for advanced betting markets:
 - Team to score probabilities
 
 REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
+IMPROVED (2026-08-29): Updated weighting algorithm with sample guards and breakdown.
 """
 
 from typing import Any
@@ -110,7 +111,7 @@ async def get_total_goals_range(
                 return total >= low
             return low <= total <= high
 
-        weighted_prob = RecencyWeightCalculator.calculate(
+        weighted_prob, _ = RecencyWeightCalculator.calculate(
             recent_matches=recent,
             last_season=last_season,
             older_seasons=older,
@@ -251,29 +252,29 @@ async def get_home_either_half_outcome(
 
     tendency = "second_half" if second_half_wins > first_half_wins else "first_half"
 
-    # Calculate weighted probabilities with recency bias
-    weighted_win_first_half = RecencyWeightCalculator.calculate(
+    # Calculate weighted probabilities with recency bias (now returns tuple)
+    weighted_win_first_half, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
         condition_fn=lambda m: check_half_wins(m)["first_half_win"]
     )
 
-    weighted_win_second_half = RecencyWeightCalculator.calculate(
+    weighted_win_second_half, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
         condition_fn=lambda m: check_half_wins(m)["second_half_win"]
     )
 
-    weighted_win_either_half = RecencyWeightCalculator.calculate(
+    weighted_win_either_half, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
         condition_fn=lambda m: check_half_wins(m)["first_half_win"] or check_half_wins(m)["second_half_win"]
     )
 
-    weighted_win_both_halves = RecencyWeightCalculator.calculate(
+    weighted_win_both_halves, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
@@ -427,29 +428,29 @@ async def get_away_either_half_outcome(
 
     tendency = "second_half" if second_half_wins > first_half_wins else "first_half"
 
-    # Calculate weighted probabilities with recency bias
-    weighted_win_first_half = RecencyWeightCalculator.calculate(
+    # Calculate weighted probabilities with recency bias (now returns tuple)
+    weighted_win_first_half, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
         condition_fn=lambda m: check_half_wins(m)["first_half_win"]
     )
 
-    weighted_win_second_half = RecencyWeightCalculator.calculate(
+    weighted_win_second_half, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
         condition_fn=lambda m: check_half_wins(m)["second_half_win"]
     )
 
-    weighted_win_either_half = RecencyWeightCalculator.calculate(
+    weighted_win_either_half, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
         condition_fn=lambda m: check_half_wins(m)["first_half_win"] or check_half_wins(m)["second_half_win"]
     )
 
-    weighted_win_both_halves = RecencyWeightCalculator.calculate(
+    weighted_win_both_halves, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent_with_ht,
         last_season=last_season_with_ht,
         older_seasons=older_with_ht,
@@ -543,8 +544,8 @@ async def get_home_to_score(
     home_scored = sum(1 for m in all_matches if home_scores(m))
     total = len(all_matches)
 
-    # Calculate weighted probability with recency bias
-    weighted_prob = RecencyWeightCalculator.calculate(
+    # Calculate weighted probability with recency bias (now returns tuple)
+    weighted_prob, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent,
         last_season=last_season,
         older_seasons=older,
@@ -626,8 +627,8 @@ async def get_away_to_score(
     away_scored = sum(1 for m in all_matches if away_scores(m))
     total = len(all_matches)
 
-    # Calculate weighted probability with recency bias
-    weighted_prob = RecencyWeightCalculator.calculate(
+    # Calculate weighted probability with recency bias (now returns tuple)
+    weighted_prob, _ = RecencyWeightCalculator.calculate(
         recent_matches=recent,
         last_season=last_season,
         older_seasons=older,

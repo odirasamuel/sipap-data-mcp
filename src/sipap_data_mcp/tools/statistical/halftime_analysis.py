@@ -9,6 +9,7 @@ NOTE: These tools require halftime data in metadata->>'halftime_home_score'
       Tools will gracefully degrade if halftime data is missing.
 
 REDESIGNED (2026-08-19): Supports direct API-Football calls with intelligent caching.
+IMPROVED (2026-08-29): Updated weighting algorithm with sample guards and breakdown.
 """
 
 from typing import Any
@@ -29,7 +30,7 @@ async def get_h2h_half_time_result(
     """
     Analyze head-to-head half-time result record.
 
-    Returns win/draw/loss at halftime.
+    Returns win/draw/loss at halftime with recency-weighted probabilities.
     """
     # Use API client if available
     if api_client is not None and isinstance(home_team, int) and isinstance(away_team, int):
@@ -88,6 +89,7 @@ async def get_h2h_half_time_result(
                 "draw_ht_probability": 0.0,
                 "away_leading_ht_probability": 0.0,
                 "weighted_probabilities": {"home_leading_ht": 0.0, "draw_ht": 0.0, "away_leading_ht": 0.0},
+                "h2h_breakdown": {},
                 "current_form": {"recent_matches": 0, "home_leading_ht": 0, "home_leading_ht_probability": 0.0}
             },
             "metadata": {"seasons_analyzed": 0, "halftime_data_coverage": 0.0, "data_quality": "low"}
@@ -143,27 +145,34 @@ async def get_h2h_half_time_result(
     last_season_ht = [m for m in last_season if has_ht_data(m)]
     older_ht = [m for m in older if has_ht_data(m)]
 
-    weighted_home = RecencyWeightCalculator.calculate(
+    # Updated to use tuple return
+    weighted_home, breakdown_home = RecencyWeightCalculator.calculate(
         recent_ht, last_season_ht, older_ht,
         lambda m: get_ht_result(m) == 'home_leading'
     )
 
-    weighted_draw = RecencyWeightCalculator.calculate(
+    weighted_draw, breakdown_draw = RecencyWeightCalculator.calculate(
         recent_ht, last_season_ht, older_ht,
         lambda m: get_ht_result(m) == 'draw'
     )
 
-    weighted_away = RecencyWeightCalculator.calculate(
+    weighted_away, breakdown_away = RecencyWeightCalculator.calculate(
         recent_ht, last_season_ht, older_ht,
         lambda m: get_ht_result(m) == 'away_leading'
     )
 
+    h2h_breakdown = {
+        "home_leading_ht": breakdown_home,
+        "draw_ht": breakdown_draw,
+        "away_leading_ht": breakdown_away,
+    }
+
     # Current form
     recent_home_leading = sum(1 for m in recent_ht if get_ht_result(m) == 'home_leading')
 
-    # Data quality based on HT coverage
+    # Data quality based on HT coverage with market-specific thresholds
     ht_coverage = (len(matches_with_ht) / len(all_matches)) if all_matches else 0.0
-    data_quality = DataQualityClassifier.assess(len(matches_with_ht))
+    data_quality = DataQualityClassifier.assess(len(matches_with_ht), market="HT_1X2")
 
     return {
         "tool": "get_h2h_half_time_result",
@@ -180,6 +189,7 @@ async def get_h2h_half_time_result(
                 "draw_ht": weighted_draw,
                 "away_leading_ht": weighted_away
             },
+            "h2h_breakdown": h2h_breakdown,
             "current_form": {
                 "recent_matches": len(recent_ht),
                 "home_leading_ht": recent_home_leading,
@@ -189,7 +199,8 @@ async def get_h2h_half_time_result(
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
             "halftime_data_coverage": round(ht_coverage, 2),
-            "data_quality": data_quality
+            "data_quality": data_quality,
+            "current_football_season": matches_data.get("current_football_season"),
         }
     }
 
@@ -264,7 +275,8 @@ async def get_h2h_2nd_half_result(
                 "home_win_2h_probability": 0.0,
                 "draw_2h_probability": 0.0,
                 "away_win_2h_probability": 0.0,
-                "weighted_probabilities": {"home_win_2h": 0.0, "draw_2h": 0.0, "away_win_2h": 0.0}
+                "weighted_probabilities": {"home_win_2h": 0.0, "draw_2h": 0.0, "away_win_2h": 0.0},
+                "h2h_breakdown": {}
             },
             "metadata": {"seasons_analyzed": 0, "halftime_data_coverage": 0.0, "data_quality": "low"}
         }
@@ -326,23 +338,30 @@ async def get_h2h_2nd_half_result(
     last_season_ht = [m for m in last_season if has_ht_data(m)]
     older_ht = [m for m in older if has_ht_data(m)]
 
-    weighted_home = RecencyWeightCalculator.calculate(
+    # Updated to use tuple return
+    weighted_home, breakdown_home = RecencyWeightCalculator.calculate(
         recent_ht, last_season_ht, older_ht,
         lambda m: get_2h_result(m) == 'home_win'
     )
 
-    weighted_draw = RecencyWeightCalculator.calculate(
+    weighted_draw, breakdown_draw = RecencyWeightCalculator.calculate(
         recent_ht, last_season_ht, older_ht,
         lambda m: get_2h_result(m) == 'draw'
     )
 
-    weighted_away = RecencyWeightCalculator.calculate(
+    weighted_away, breakdown_away = RecencyWeightCalculator.calculate(
         recent_ht, last_season_ht, older_ht,
         lambda m: get_2h_result(m) == 'away_win'
     )
 
+    h2h_breakdown = {
+        "home_win_2h": breakdown_home,
+        "draw_2h": breakdown_draw,
+        "away_win_2h": breakdown_away,
+    }
+
     ht_coverage = (len(matches_with_ht) / len(all_matches)) if all_matches else 0.0
-    data_quality = DataQualityClassifier.assess(len(matches_with_ht))
+    data_quality = DataQualityClassifier.assess(len(matches_with_ht), market="HT_1X2")
 
     return {
         "tool": "get_h2h_2nd_half_result",
@@ -358,12 +377,14 @@ async def get_h2h_2nd_half_result(
                 "home_win_2h": weighted_home,
                 "draw_2h": weighted_draw,
                 "away_win_2h": weighted_away
-            }
+            },
+            "h2h_breakdown": h2h_breakdown
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
             "halftime_data_coverage": round(ht_coverage, 2),
-            "data_quality": data_quality
+            "data_quality": data_quality,
+            "current_football_season": matches_data.get("current_football_season"),
         }
     }
 
@@ -504,7 +525,8 @@ async def get_ht_ft_outcome(
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
             "halftime_data_coverage": round(len(matches_with_ht) / len(all_matches), 2) if all_matches else 0.0,
-            "data_quality": DataQualityClassifier.assess(total)
+            "data_quality": DataQualityClassifier.assess(total, market="HT_1X2"),
+            "current_football_season": matches_data.get("current_football_season"),
         }
     }
 
@@ -653,7 +675,8 @@ async def get_half_time_goals(
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
             "halftime_data_coverage": round(len(matches_with_ht) / len(all_matches), 2) if all_matches else 0.0,
-            "data_quality": DataQualityClassifier.assess(total)
+            "data_quality": DataQualityClassifier.assess(total, market="HT_OU1.5"),
+            "current_football_season": matches_data.get("current_football_season"),
         }
     }
 
@@ -788,6 +811,7 @@ async def get_2nd_half_goals(
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
             "halftime_data_coverage": round(len(matches_with_ht) / len(all_matches), 2) if all_matches else 0.0,
-            "data_quality": DataQualityClassifier.assess(total)
+            "data_quality": DataQualityClassifier.assess(total, market="HT_OU1.5"),
+            "current_football_season": matches_data.get("current_football_season"),
         }
     }

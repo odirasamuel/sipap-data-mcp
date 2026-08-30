@@ -45,7 +45,14 @@ Infrastructure:
 from .base import (
     RecencyWeightCalculator,
     DataQualityClassifier,
-    BaseStatisticalTool
+    BaseStatisticalTool,
+    # New functions (2026-08-29)
+    get_football_season,
+    calculate_confidence_penalty,
+    calculate_final_confidence,
+    # Constants
+    MIN_SAMPLES_FOR_WEIGHTING,
+    MARKET_QUALITY_THRESHOLDS,
 )
 
 # Phase 1: Core tools
@@ -90,6 +97,13 @@ __all__ = [
     "RecencyWeightCalculator",
     "DataQualityClassifier",
     "BaseStatisticalTool",
+    # New functions (2026-08-29)
+    "get_football_season",
+    "calculate_confidence_penalty",
+    "calculate_final_confidence",
+    # Constants
+    "MIN_SAMPLES_FOR_WEIGHTING",
+    "MARKET_QUALITY_THRESHOLDS",
 
     # Phase 1: Core tools (5)
     "get_h2h_full_time_result",
