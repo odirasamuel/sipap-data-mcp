@@ -89,8 +89,9 @@ async def get_h2h_half_time_result(
                 "draw_ht_probability": 0.0,
                 "away_leading_ht_probability": 0.0,
                 "weighted_probabilities": {"home_leading_ht": 0.0, "draw_ht": 0.0, "away_leading_ht": 0.0},
+                "blended_probabilities": {"home_leading_ht": 0.0, "draw_ht": 0.0, "away_leading_ht": 0.0},
                 "h2h_breakdown": {},
-                "current_form": {"recent_matches": 0, "home_leading_ht": 0, "home_leading_ht_probability": 0.0}
+                "current_form": {"recent_matches": 0, "home_leading_ht": 0, "home_leading_ht_probability": 0.0, "draw_ht_probability": 0.0, "away_leading_ht_probability": 0.0}
             },
             "metadata": {"seasons_analyzed": 0, "halftime_data_coverage": 0.0, "data_quality": "low"}
         }
@@ -167,8 +168,20 @@ async def get_h2h_half_time_result(
         "away_leading_ht": breakdown_away,
     }
 
-    # Current form
+    # Current form (all 3 outcomes for blending)
     recent_home_leading = sum(1 for m in recent_ht if get_ht_result(m) == 'home_leading')
+    recent_draw_ht = sum(1 for m in recent_ht if get_ht_result(m) == 'draw')
+    recent_away_leading = sum(1 for m in recent_ht if get_ht_result(m) == 'away_leading')
+
+    n_recent_ht = len(recent_ht)
+    cf_home = recent_home_leading / n_recent_ht if n_recent_ht else weighted_home
+    cf_draw = recent_draw_ht / n_recent_ht if n_recent_ht else weighted_draw
+    cf_away = recent_away_leading / n_recent_ht if n_recent_ht else weighted_away
+
+    # Blended probabilities: H2H weighted × 0.40 + recent H2H form × 0.60
+    blended_home = round(weighted_home * 0.40 + cf_home * 0.60, 4)
+    blended_draw = round(weighted_draw * 0.40 + cf_draw * 0.60, 4)
+    blended_away = round(weighted_away * 0.40 + cf_away * 0.60, 4)
 
     # Data quality based on HT coverage with market-specific thresholds
     ht_coverage = (len(matches_with_ht) / len(all_matches)) if all_matches else 0.0
@@ -189,11 +202,18 @@ async def get_h2h_half_time_result(
                 "draw_ht": weighted_draw,
                 "away_leading_ht": weighted_away
             },
+            "blended_probabilities": {
+                "home_leading_ht": blended_home,
+                "draw_ht": blended_draw,
+                "away_leading_ht": blended_away
+            },
             "h2h_breakdown": h2h_breakdown,
             "current_form": {
-                "recent_matches": len(recent_ht),
+                "recent_matches": n_recent_ht,
                 "home_leading_ht": recent_home_leading,
-                "home_leading_ht_probability": round(recent_home_leading / len(recent_ht), 4) if recent_ht else 0.0
+                "home_leading_ht_probability": round(cf_home, 4),
+                "draw_ht_probability": round(cf_draw, 4),
+                "away_leading_ht_probability": round(cf_away, 4),
             }
         },
         "metadata": {
@@ -276,6 +296,8 @@ async def get_h2h_2nd_half_result(
                 "draw_2h_probability": 0.0,
                 "away_win_2h_probability": 0.0,
                 "weighted_probabilities": {"home_win_2h": 0.0, "draw_2h": 0.0, "away_win_2h": 0.0},
+                "blended_probabilities": {"home_win_2h": 0.0, "draw_2h": 0.0, "away_win_2h": 0.0},
+                "current_form": {"recent_matches": 0, "home_win_2h_probability": 0.0, "draw_2h_probability": 0.0, "away_win_2h_probability": 0.0},
                 "h2h_breakdown": {}
             },
             "metadata": {"seasons_analyzed": 0, "halftime_data_coverage": 0.0, "data_quality": "low"}
@@ -360,6 +382,17 @@ async def get_h2h_2nd_half_result(
         "away_win_2h": breakdown_away,
     }
 
+    # Current form from recent H2H (for blending)
+    n_recent_2h = len(recent_ht)
+    cf_home_2h = sum(1 for m in recent_ht if get_2h_result(m) == 'home_win') / n_recent_2h if n_recent_2h else weighted_home
+    cf_draw_2h = sum(1 for m in recent_ht if get_2h_result(m) == 'draw') / n_recent_2h if n_recent_2h else weighted_draw
+    cf_away_2h = sum(1 for m in recent_ht if get_2h_result(m) == 'away_win') / n_recent_2h if n_recent_2h else weighted_away
+
+    # Blended probabilities: H2H weighted × 0.40 + recent H2H form × 0.60
+    blended_home_2h = round(weighted_home * 0.40 + cf_home_2h * 0.60, 4)
+    blended_draw_2h = round(weighted_draw * 0.40 + cf_draw_2h * 0.60, 4)
+    blended_away_2h = round(weighted_away * 0.40 + cf_away_2h * 0.60, 4)
+
     ht_coverage = (len(matches_with_ht) / len(all_matches)) if all_matches else 0.0
     data_quality = DataQualityClassifier.assess(len(matches_with_ht), market="HT_1X2")
 
@@ -377,6 +410,17 @@ async def get_h2h_2nd_half_result(
                 "home_win_2h": weighted_home,
                 "draw_2h": weighted_draw,
                 "away_win_2h": weighted_away
+            },
+            "blended_probabilities": {
+                "home_win_2h": blended_home_2h,
+                "draw_2h": blended_draw_2h,
+                "away_win_2h": blended_away_2h,
+            },
+            "current_form": {
+                "recent_matches": n_recent_2h,
+                "home_win_2h_probability": round(cf_home_2h, 4),
+                "draw_2h_probability": round(cf_draw_2h, 4),
+                "away_win_2h_probability": round(cf_away_2h, 4),
             },
             "h2h_breakdown": h2h_breakdown
         },
@@ -501,16 +545,34 @@ async def get_ht_ft_outcome(
 
     total = len(matches_with_ht)
 
-    outcomes = [
-        {
-            "halftime": ht,
-            "fulltime": ft,
-            "count": combos.get(f"{ht}/{ft}", 0),
-            "probability": round(combos.get(f"{ht}/{ft}", 0) / total, 4) if total > 0 else 0.0
-        }
-        for ht in ["Home", "Draw", "Away"]
-        for ft in ["Home", "Draw", "Away"]
-    ]
+    # Recent H2H form for blending
+    recent_combos: dict[str, int] = {}
+    recent_with_ht = [m for m in matches_data["recent_matches"] if has_ht_data(m)]
+    for m in recent_with_ht:
+        combo = get_ht_ft_combo(m)
+        key = f"{combo[0]}/{combo[1]}"
+        recent_combos[key] = recent_combos.get(key, 0) + 1
+    n_recent_ht_ft = len(recent_with_ht)
+
+    outcomes = []
+    for ht in ["Home", "Draw", "Away"]:
+        for ft in ["Home", "Draw", "Away"]:
+            key = f"{ht}/{ft}"
+            raw_count = combos.get(key, 0)
+            raw_prob = round(raw_count / total, 4) if total > 0 else 0.0
+
+            # Recent H2H frequency as form signal
+            recent_freq = (recent_combos.get(key, 0) / n_recent_ht_ft
+                           if n_recent_ht_ft else raw_prob)
+            blended_prob = round(raw_prob * 0.40 + recent_freq * 0.60, 4)
+
+            outcomes.append({
+                "halftime": ht,
+                "fulltime": ft,
+                "count": raw_count,
+                "probability": raw_prob,
+                "blended_probability": blended_prob,
+            })
 
     # Find most likely
     most_likely_combo = max(outcomes, key=lambda x: x["probability"]) if outcomes else None
@@ -641,7 +703,26 @@ async def get_half_time_goals(
     total_ht_goals = home_ht_total + away_ht_total
     total_ht_avg = total_ht_goals / total if total > 0 else 0.0
 
+    over_0_5_ht = sum(1 for m in matches_with_ht if (get_ht_goals(m)[0] + get_ht_goals(m)[1]) > 0.5)
     over_1_5_ht = sum(1 for m in matches_with_ht if (get_ht_goals(m)[0] + get_ht_goals(m)[1]) > 1.5)
+    over_2_5_ht = sum(1 for m in matches_with_ht if (get_ht_goals(m)[0] + get_ht_goals(m)[1]) > 2.5)
+
+    raw_ht_over_0_5 = round(over_0_5_ht / total, 4) if total > 0 else 0.0
+    raw_ht_over_1_5 = round(over_1_5_ht / total, 4) if total > 0 else 0.0
+    raw_ht_over_2_5 = round(over_2_5_ht / total, 4) if total > 0 else 0.0
+
+    # Recent H2H form for blending (last 10 H2H with HT data)
+    recent_with_ht_g = [m for m in matches_data["recent_matches"] if has_ht_data(m)]
+    n_rg = len(recent_with_ht_g)
+
+    def _recent_ht_over(thresh: float) -> float:
+        if not n_rg:
+            return 0.0
+        return sum(1 for m in recent_with_ht_g if (get_ht_goals(m)[0] + get_ht_goals(m)[1]) > thresh) / n_rg
+
+    blended_ht_over_0_5 = round(raw_ht_over_0_5 * 0.40 + _recent_ht_over(0.5) * 0.60, 4)
+    blended_ht_over_1_5 = round(raw_ht_over_1_5 * 0.40 + _recent_ht_over(1.5) * 0.60, 4)
+    blended_ht_over_2_5 = round(raw_ht_over_2_5 * 0.40 + _recent_ht_over(2.5) * 0.60, 4)
 
     return {
         "tool": "get_half_time_goals",
@@ -669,7 +750,14 @@ async def get_half_time_goals(
             },
             "total_ht_goals": {
                 "average": round(total_ht_avg, 2),
-                "over_1.5": round(over_1_5_ht / total, 4) if total > 0 else 0.0
+                "over_0.5": raw_ht_over_0_5,
+                "over_1.5": raw_ht_over_1_5,
+                "over_2.5": raw_ht_over_2_5,
+            },
+            "blended_total_ht_goals": {
+                "over_0.5": blended_ht_over_0_5,
+                "over_1.5": blended_ht_over_1_5,
+                "over_2.5": blended_ht_over_2_5,
             }
         },
         "metadata": {
@@ -786,10 +874,29 @@ async def get_2nd_half_goals(
     away_2h_avg = away_2h_total / total if total > 0 else 0.0
 
     # Total 2H goals
-    total_2h_goals = home_2h_total + away_2h_total
-    total_2h_avg = total_2h_goals / total if total > 0 else 0.0
+    total_2h_goals_sum = home_2h_total + away_2h_total
+    total_2h_avg = total_2h_goals_sum / total if total > 0 else 0.0
 
+    over_0_5_2h = sum(1 for m in matches_with_ht if (get_2h_goals(m)[0] + get_2h_goals(m)[1]) > 0.5)
     over_1_5_2h = sum(1 for m in matches_with_ht if (get_2h_goals(m)[0] + get_2h_goals(m)[1]) > 1.5)
+    over_2_5_2h = sum(1 for m in matches_with_ht if (get_2h_goals(m)[0] + get_2h_goals(m)[1]) > 2.5)
+
+    raw_2h_over_0_5 = round(over_0_5_2h / total, 4) if total > 0 else 0.0
+    raw_2h_over_1_5 = round(over_1_5_2h / total, 4) if total > 0 else 0.0
+    raw_2h_over_2_5 = round(over_2_5_2h / total, 4) if total > 0 else 0.0
+
+    # Recent H2H form for blending
+    recent_with_ht_2h = [m for m in matches_data["recent_matches"] if has_ht_data(m)]
+    n_r2h = len(recent_with_ht_2h)
+
+    def _recent_2h_over(thresh: float) -> float:
+        if not n_r2h:
+            return 0.0
+        return sum(1 for m in recent_with_ht_2h if (get_2h_goals(m)[0] + get_2h_goals(m)[1]) > thresh) / n_r2h
+
+    blended_2h_over_0_5 = round(raw_2h_over_0_5 * 0.40 + _recent_2h_over(0.5) * 0.60, 4)
+    blended_2h_over_1_5 = round(raw_2h_over_1_5 * 0.40 + _recent_2h_over(1.5) * 0.60, 4)
+    blended_2h_over_2_5 = round(raw_2h_over_2_5 * 0.40 + _recent_2h_over(2.5) * 0.60, 4)
 
     return {
         "tool": "get_2nd_half_goals",
@@ -805,7 +912,14 @@ async def get_2nd_half_goals(
             },
             "total_2h_goals": {
                 "average": round(total_2h_avg, 2),
-                "over_1.5": round(over_1_5_2h / total, 4) if total > 0 else 0.0
+                "over_0.5": raw_2h_over_0_5,
+                "over_1.5": raw_2h_over_1_5,
+                "over_2.5": raw_2h_over_2_5,
+            },
+            "blended_total_2h_goals": {
+                "over_0.5": blended_2h_over_0_5,
+                "over_1.5": blended_2h_over_1_5,
+                "over_2.5": blended_2h_over_2_5,
             }
         },
         "metadata": {

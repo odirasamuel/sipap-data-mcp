@@ -274,7 +274,8 @@ class APIFootballClient:
         self,
         team1_id: int,
         team2_id: int,
-        last: int = 20,
+        last: int | None = None,
+        from_date: str | None = None,
     ) -> dict[str, Any]:
         """Get head-to-head fixtures between two teams.
 
@@ -283,21 +284,27 @@ class APIFootballClient:
         Args:
             team1_id: First team ID
             team2_id: Second team ID
-            last: Number of recent matches (default: 20)
+            last: Number of recent matches (default: 20 when no from_date given)
+            from_date: Start date for historical range (YYYY-MM-DD). When provided,
+                fetches all H2H matches from this date onwards instead of using last.
 
         Returns:
             API response with H2H fixtures
 
         Example:
             ```python
-            h2h = await client.get_h2h(
-                team1_id=50,  # Man City
-                team2_id=42,  # Arsenal
-                last=10
-            )
+            # Last 10 matches
+            h2h = await client.get_h2h(team1_id=50, team2_id=42, last=10)
+
+            # All matches since 2010/11 season
+            h2h = await client.get_h2h(team1_id=50, team2_id=42, from_date="2010-08-01")
             ```
         """
-        params = {"h2h": f"{team1_id}-{team2_id}", "last": last}
+        params: dict[str, Any] = {"h2h": f"{team1_id}-{team2_id}"}
+        if from_date:
+            params["from"] = from_date
+        else:
+            params["last"] = last if last is not None else 20
         return await self._request(
             "fixtures/headtohead",
             params,

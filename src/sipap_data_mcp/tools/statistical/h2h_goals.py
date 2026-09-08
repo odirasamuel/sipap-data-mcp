@@ -187,8 +187,8 @@ async def get_h2h_goals(
                 "average_goals_per_match": 0.0,
                 "over_thresholds": {},
                 "under_thresholds": {},
-                "weighted_probabilities": {"over_2.5": 0.0, "under_2.5": 0.0},
-                "blended_probabilities": {"over_2.5": 0.0, "under_2.5": 0.0},
+                "weighted_probabilities": {"over_0.5": 0.0, "over_1.5": 0.0, "over_2.5": 0.0, "under_2.5": 0.0, "over_3.5": 0.0, "over_4.5": 0.0},
+                "blended_probabilities": {"over_0.5": 0.0, "over_1.5": 0.0, "over_2.5": 0.0, "under_2.5": 0.0, "over_3.5": 0.0, "over_4.5": 0.0},
                 "h2h_breakdown": {},
                 "form_data": None,
                 "confidence": {"final_confidence": 0.0, "adjustments": ["No data"]},
@@ -253,6 +253,41 @@ async def get_h2h_goals(
         "under_2.5": h2h_breakdown_under,
     }
 
+    # Compute weighted probabilities for all thresholds (used by market_evaluator for all OU markets)
+    weighted_over_0_5, _ = RecencyWeightCalculator.calculate(
+        recent_matches=recent, last_season=last_season, older_seasons=older,
+        condition_fn=lambda m: get_total_goals(m) > 0.5
+    )
+    weighted_over_1_5, _ = RecencyWeightCalculator.calculate(
+        recent_matches=recent, last_season=last_season, older_seasons=older,
+        condition_fn=lambda m: get_total_goals(m) > 1.5
+    )
+    weighted_over_3_5, _ = RecencyWeightCalculator.calculate(
+        recent_matches=recent, last_season=last_season, older_seasons=older,
+        condition_fn=lambda m: get_total_goals(m) > 3.5
+    )
+    weighted_over_4_5, _ = RecencyWeightCalculator.calculate(
+        recent_matches=recent, last_season=last_season, older_seasons=older,
+        condition_fn=lambda m: get_total_goals(m) > 4.5
+    )
+
+    # Default blended values using recent H2H as form signal (40/60 blend)
+    # Used for thresholds other than 2.5 (which uses team-specific form when available)
+    _h2h_w = 0.40
+    _form_w = 0.60
+
+    def _blend_with_recent(weighted: float, threshold: float) -> float:
+        recent_over = (
+            sum(1 for m in recent if get_total_goals(m) > threshold) / len(recent)
+            if recent else weighted
+        )
+        return round(weighted * _h2h_w + recent_over * _form_w, 4)
+
+    blended_over_0_5 = _blend_with_recent(weighted_over_0_5, 0.5)
+    blended_over_1_5 = _blend_with_recent(weighted_over_1_5, 1.5)
+    blended_over_3_5 = _blend_with_recent(weighted_over_3_5, 3.5)
+    blended_over_4_5 = _blend_with_recent(weighted_over_4_5, 4.5)
+
     # Current form analysis
     recent_total_goals = sum(get_total_goals(m) for m in recent)
     recent_avg_goals = recent_total_goals / len(recent) if recent else 0.0
@@ -282,10 +317,9 @@ async def get_h2h_goals(
                 threshold=2.5,
             )
 
-            # Blend H2H with form
-            # Weight H2H more when we have more H2H data
-            h2h_weight = 0.6 if total_matches >= 8 else 0.4
-            form_weight = 1 - h2h_weight
+            # Blend H2H (statistical) with form — fixed 40/60 to match orchestrator ensemble weights
+            h2h_weight = 0.40
+            form_weight = 0.60
 
             blended_over_2_5 = round(
                 weighted_over_2_5 * h2h_weight + form_data["over_probability"] * form_weight,
@@ -331,12 +365,20 @@ async def get_h2h_goals(
             "over_thresholds": over_thresholds,
             "under_thresholds": under_thresholds,
             "weighted_probabilities": {
+                "over_0.5": weighted_over_0_5,
+                "over_1.5": weighted_over_1_5,
                 "over_2.5": weighted_over_2_5,
-                "under_2.5": weighted_under_2_5
+                "under_2.5": weighted_under_2_5,
+                "over_3.5": weighted_over_3_5,
+                "over_4.5": weighted_over_4_5,
             },
             "blended_probabilities": {
+                "over_0.5": blended_over_0_5,
+                "over_1.5": blended_over_1_5,
                 "over_2.5": blended_over_2_5,
-                "under_2.5": blended_under_2_5
+                "under_2.5": blended_under_2_5,
+                "over_3.5": blended_over_3_5,
+                "over_4.5": blended_over_4_5,
             },
             "h2h_breakdown": h2h_breakdown,
             "form_data": form_data,

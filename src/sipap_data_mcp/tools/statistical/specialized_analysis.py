@@ -281,6 +281,17 @@ async def get_home_either_half_outcome(
         condition_fn=lambda m: check_half_wins(m)["first_half_win"] and check_half_wins(m)["second_half_win"]
     )
 
+    # Blended probabilities: H2H weighted × 0.40 + recent H2H form × 0.60
+    n_rwh = len(recent_with_ht)
+    cf_win_first = (sum(1 for m in recent_with_ht if check_half_wins(m)["first_half_win"]) / n_rwh
+                    if n_rwh else weighted_win_first_half)
+    cf_win_second = (sum(1 for m in recent_with_ht if check_half_wins(m)["second_half_win"]) / n_rwh
+                     if n_rwh else weighted_win_second_half)
+    cf_win_either = (sum(1 for m in recent_with_ht if check_half_wins(m)["first_half_win"] or check_half_wins(m)["second_half_win"]) / n_rwh
+                     if n_rwh else weighted_win_either_half)
+    cf_win_both = (sum(1 for m in recent_with_ht if check_half_wins(m)["first_half_win"] and check_half_wins(m)["second_half_win"]) / n_rwh
+                   if n_rwh else weighted_win_both_halves)
+
     return {
         "tool": "get_home_either_half_outcome",
         "data": {
@@ -298,6 +309,12 @@ async def get_home_either_half_outcome(
                 "win_second_half": weighted_win_second_half,
                 "win_either_half": weighted_win_either_half,
                 "win_both_halves": weighted_win_both_halves
+            },
+            "blended_probabilities": {
+                "win_first_half": round(weighted_win_first_half * 0.40 + cf_win_first * 0.60, 4),
+                "win_second_half": round(weighted_win_second_half * 0.40 + cf_win_second * 0.60, 4),
+                "win_either_half": round(weighted_win_either_half * 0.40 + cf_win_either * 0.60, 4),
+                "win_both_halves": round(weighted_win_both_halves * 0.40 + cf_win_both * 0.60, 4),
             },
             "tendency": tendency
         },
@@ -457,6 +474,17 @@ async def get_away_either_half_outcome(
         condition_fn=lambda m: check_half_wins(m)["first_half_win"] and check_half_wins(m)["second_half_win"]
     )
 
+    # Blended probabilities: H2H weighted × 0.40 + recent H2H form × 0.60
+    n_rwh_a = len(recent_with_ht)
+    cf_win_first_a = (sum(1 for m in recent_with_ht if check_half_wins(m)["first_half_win"]) / n_rwh_a
+                      if n_rwh_a else weighted_win_first_half)
+    cf_win_second_a = (sum(1 for m in recent_with_ht if check_half_wins(m)["second_half_win"]) / n_rwh_a
+                       if n_rwh_a else weighted_win_second_half)
+    cf_win_either_a = (sum(1 for m in recent_with_ht if check_half_wins(m)["first_half_win"] or check_half_wins(m)["second_half_win"]) / n_rwh_a
+                       if n_rwh_a else weighted_win_either_half)
+    cf_win_both_a = (sum(1 for m in recent_with_ht if check_half_wins(m)["first_half_win"] and check_half_wins(m)["second_half_win"]) / n_rwh_a
+                     if n_rwh_a else weighted_win_both_halves)
+
     return {
         "tool": "get_away_either_half_outcome",
         "data": {
@@ -474,6 +502,12 @@ async def get_away_either_half_outcome(
                 "win_second_half": weighted_win_second_half,
                 "win_either_half": weighted_win_either_half,
                 "win_both_halves": weighted_win_both_halves
+            },
+            "blended_probabilities": {
+                "win_first_half": round(weighted_win_first_half * 0.40 + cf_win_first_a * 0.60, 4),
+                "win_second_half": round(weighted_win_second_half * 0.40 + cf_win_second_a * 0.60, 4),
+                "win_either_half": round(weighted_win_either_half * 0.40 + cf_win_either_a * 0.60, 4),
+                "win_both_halves": round(weighted_win_both_halves * 0.40 + cf_win_both_a * 0.60, 4),
             },
             "tendency": tendency
         },
@@ -552,6 +586,12 @@ async def get_home_to_score(
         condition_fn=home_scores
     )
 
+    # Blend: H2H weighted × 0.40 + recent H2H form × 0.60
+    recent_form_prob = (
+        sum(1 for m in recent if home_scores(m)) / len(recent) if recent else weighted_prob
+    )
+    blended_prob_home = round(weighted_prob * 0.40 + recent_form_prob * 0.60, 4)
+
     return {
         "tool": "get_home_to_score",
         "data": {
@@ -559,7 +599,8 @@ async def get_home_to_score(
             "home_scored": home_scored,
             "home_blanked": total - home_scored,
             "home_to_score_probability": round(home_scored / total, 4) if total > 0 else 0.0,
-            "weighted_probability": weighted_prob  # Recency weighted (50/30/20)
+            "weighted_probability": weighted_prob,  # Recency weighted (50/30/20)
+            "blended_probability": blended_prob_home,  # H2H × 0.40 + recent form × 0.60
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -635,6 +676,12 @@ async def get_away_to_score(
         condition_fn=away_scores
     )
 
+    # Blend: H2H weighted × 0.40 + recent H2H form × 0.60
+    recent_form_prob_a = (
+        sum(1 for m in recent if away_scores(m)) / len(recent) if recent else weighted_prob
+    )
+    blended_prob_away = round(weighted_prob * 0.40 + recent_form_prob_a * 0.60, 4)
+
     return {
         "tool": "get_away_to_score",
         "data": {
@@ -642,7 +689,8 @@ async def get_away_to_score(
             "away_scored": away_scored,
             "away_blanked": total - away_scored,
             "away_to_score_probability": round(away_scored / total, 4) if total > 0 else 0.0,
-            "weighted_probability": weighted_prob  # Recency weighted (50/30/20)
+            "weighted_probability": weighted_prob,  # Recency weighted (50/30/20)
+            "blended_probability": blended_prob_away,  # H2H × 0.40 + recent form × 0.60
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],

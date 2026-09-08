@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # =============================================================================
 
+# Earliest football season for historical data (API-Football data starts ~2010)
+# August 1 = start of 2010/11 season, aligned with football season boundary (Aug-Jul)
+HISTORICAL_DATA_START = "2010-08-01"
+
 # Minimum matches needed for a bucket to be weighted
 MIN_SAMPLES_FOR_WEIGHTING = 3
 
@@ -434,11 +438,11 @@ class BaseStatisticalTool:
             Dict with all_matches, recent_matches, last_season, older_seasons,
             seasons_analyzed, earliest_match, latest_match
         """
-        # API-Football returns up to 50 H2H matches
+        # Fetch all H2H matches from 2010 onward (start of API-Football historical data)
         response = await api_client.get_h2h(
             team1_id=home_team_id,
             team2_id=away_team_id,
-            last=50,
+            from_date=HISTORICAL_DATA_START,
         )
 
         # Transform fixtures to match format
@@ -550,7 +554,7 @@ class BaseStatisticalTool:
         params: dict[str, Any] = {
             "team": team_id,
             "status": "FT",
-            "last": 50,
+            "from_date": HISTORICAL_DATA_START,
         }
 
         if league_id:

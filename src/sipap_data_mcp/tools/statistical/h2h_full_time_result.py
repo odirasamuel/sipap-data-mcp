@@ -382,10 +382,9 @@ async def get_h2h_full_time_result(
                 away_team_id=away_team,
             )
 
-            # Blend H2H with form
-            # Weight H2H more when we have more H2H data
-            h2h_weight = 0.6 if total_matches >= 8 else 0.4
-            form_weight = 1 - h2h_weight
+            # Blend H2H (statistical) with form — fixed 40/60 to match orchestrator ensemble weights
+            h2h_weight = 0.40
+            form_weight = 0.60
 
             blended_home_win = round(
                 weighted_home_win * h2h_weight + form_data["home_win_probability"] * form_weight,

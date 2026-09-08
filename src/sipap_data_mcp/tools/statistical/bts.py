@@ -240,10 +240,9 @@ async def get_bts(
                 away_team_id=away_team,
             )
 
-            # Blend H2H with form
-            # Weight H2H more when we have more H2H data
-            h2h_weight = 0.6 if total_matches >= 8 else 0.4
-            form_weight = 1 - h2h_weight
+            # Blend H2H (statistical) with form — fixed 40/60 to match orchestrator ensemble weights
+            h2h_weight = 0.40
+            form_weight = 0.60
 
             blended_prob = round(
                 weighted_bts_prob * h2h_weight + form_data["btts_probability"] * form_weight,

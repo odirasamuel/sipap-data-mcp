@@ -108,11 +108,20 @@ async def get_double_chance(
             recent, last_season, older,
             lambda m: get_result(m) in ['home_win', 'draw']
         )
+        recent_prob_dc = (
+            sum(1 for m in recent if get_result(m) in ['home_win', 'draw']) / len(recent)
+            if recent else weighted
+        )
     else:
         weighted, _ = RecencyWeightCalculator.calculate(
             recent, last_season, older,
             lambda m: get_result(m) in ['away_win', 'draw']
         )
+        recent_prob_dc = (
+            sum(1 for m in recent if get_result(m) in ['away_win', 'draw']) / len(recent)
+            if recent else weighted
+        )
+    blended_dc = round(weighted * 0.40 + recent_prob_dc * 0.60, 4)
 
     return {
         "tool": "get_double_chance",
@@ -122,7 +131,8 @@ async def get_double_chance(
             "outcomes": {"home_win": home_wins, "draw": draws, "away_win": away_wins},
             "double_chance_count": dc_count,
             "double_chance_probability": round(dc_prob, 4),
-            "weighted_probability": weighted
+            "weighted_probability": weighted,
+            "blended_probability": blended_dc,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -221,6 +231,11 @@ async def get_win_or_total_goals(
         older_seasons=older,
         condition_fn=lambda m: team_wins(m) or over_goals(m)
     )
+    recent_or_prob = (
+        sum(1 for m in recent if team_wins(m) or over_goals(m)) / len(recent)
+        if recent else weighted_or_prob
+    )
+    blended_or_prob = round(weighted_or_prob * 0.40 + recent_or_prob * 0.60, 4)
 
     return {
         "tool": "get_win_or_total_goals",
@@ -234,7 +249,8 @@ async def get_win_or_total_goals(
             },
             "breakdown": {"win_only": win_only, "goals_only": goals_only, "both": both, "neither": neither},
             "or_logic": {"count": or_count, "probability": round(or_prob, 4)},
-            "weighted_probability": weighted_or_prob  # Recency weighted (50/30/20)
+            "weighted_probability": weighted_or_prob,  # Recency weighted (50/30/20)
+            "blended_probability": blended_or_prob,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -328,6 +344,11 @@ async def get_win_and_total_goals(
         older_seasons=older,
         condition_fn=lambda m: team_wins(m) and over_goals(m)
     )
+    recent_and_prob = (
+        sum(1 for m in recent if team_wins(m) and over_goals(m)) / len(recent)
+        if recent else weighted_and_prob
+    )
+    blended_and_prob = round(weighted_and_prob * 0.40 + recent_and_prob * 0.60, 4)
 
     return {
         "tool": "get_win_and_total_goals",
@@ -340,7 +361,8 @@ async def get_win_and_total_goals(
                 "over_goals": {"count": sum(1 for m in all_matches if over_goals(m))}
             },
             "and_logic": {"count": both_true, "probability": round(and_prob, 4)},
-            "weighted_probability": weighted_and_prob
+            "weighted_probability": weighted_and_prob,
+            "blended_probability": blended_and_prob,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -440,6 +462,11 @@ async def get_win_or_both_scores(
         older_seasons=older,
         condition_fn=lambda m: team_wins(m) or both_teams_score(m)
     )
+    recent_or_prob_b = (
+        sum(1 for m in recent if team_wins(m) or both_teams_score(m)) / len(recent)
+        if recent else weighted_or_prob
+    )
+    blended_or_prob_b = round(weighted_or_prob * 0.40 + recent_or_prob_b * 0.60, 4)
 
     return {
         "tool": "get_win_or_both_scores",
@@ -452,7 +479,8 @@ async def get_win_or_both_scores(
             },
             "breakdown": {"win_only": win_only, "bts_only": bts_only, "both": both, "neither": neither},
             "or_logic": {"count": or_count, "probability": round(or_prob, 4)},
-            "weighted_probability": weighted_or_prob
+            "weighted_probability": weighted_or_prob,
+            "blended_probability": blended_or_prob_b,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -545,6 +573,11 @@ async def get_win_and_both_scores(
         older_seasons=older,
         condition_fn=lambda m: team_wins(m) and both_teams_score(m)
     )
+    recent_and_prob_b = (
+        sum(1 for m in recent if team_wins(m) and both_teams_score(m)) / len(recent)
+        if recent else weighted_and_prob
+    )
+    blended_and_prob_b = round(weighted_and_prob * 0.40 + recent_and_prob_b * 0.60, 4)
 
     return {
         "tool": "get_win_and_both_scores",
@@ -556,7 +589,8 @@ async def get_win_and_both_scores(
                 "both_teams_score": {"count": sum(1 for m in all_matches if both_teams_score(m))}
             },
             "and_logic": {"count": both_true, "probability": round(and_prob, 4)},
-            "weighted_probability": weighted_and_prob
+            "weighted_probability": weighted_and_prob,
+            "blended_probability": blended_and_prob_b,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -638,6 +672,11 @@ async def get_both_scores_or_multi_goals(
         older_seasons=older,
         condition_fn=lambda m: both_teams_score(m) or over_goals(m)
     )
+    recent_or_prob_bg = (
+        sum(1 for m in recent if both_teams_score(m) or over_goals(m)) / len(recent)
+        if recent else weighted_or_prob
+    )
+    blended_or_prob_bg = round(weighted_or_prob * 0.40 + recent_or_prob_bg * 0.60, 4)
 
     return {
         "tool": "get_both_scores_or_multi_goals",
@@ -650,7 +689,8 @@ async def get_both_scores_or_multi_goals(
             },
             "breakdown": {"bts_only": bts_only, "goals_only": goals_only, "both": both, "neither": neither},
             "or_logic": {"count": or_count, "probability": round(or_prob, 4)},
-            "weighted_probability": weighted_or_prob
+            "weighted_probability": weighted_or_prob,
+            "blended_probability": blended_or_prob_bg,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -755,6 +795,11 @@ async def get_no_defeat_and_total_goals(
         older_seasons=older,
         condition_fn=lambda m: team_avoids_defeat(m) and over_goals(m)
     )
+    recent_and_prob_nd = (
+        sum(1 for m in recent if team_avoids_defeat(m) and over_goals(m)) / len(recent)
+        if recent else weighted_and_prob
+    )
+    blended_and_prob_nd = round(weighted_and_prob * 0.40 + recent_and_prob_nd * 0.60, 4)
 
     return {
         "tool": "get_no_defeat_and_total_goals",
@@ -767,7 +812,8 @@ async def get_no_defeat_and_total_goals(
                 "over_goals": {"count": sum(1 for m in all_matches if over_goals(m))}
             },
             "and_logic": {"count": both_true, "probability": round(and_prob, 4)},
-            "weighted_probability": weighted_and_prob
+            "weighted_probability": weighted_and_prob,
+            "blended_probability": blended_and_prob_nd,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -910,6 +956,11 @@ async def get_avoid_halftime_defeat(
         older_seasons=older_with_ht,
         condition_fn=avoids_ht_defeat
     )
+    recent_ht_prob = (
+        sum(1 for m in recent_with_ht if avoids_ht_defeat(m)) / len(recent_with_ht)
+        if recent_with_ht else weighted_prob
+    )
+    blended_ht_prob = round(weighted_prob * 0.40 + recent_ht_prob * 0.60, 4)
 
     return {
         "tool": "get_avoid_halftime_defeat",
@@ -919,7 +970,8 @@ async def get_avoid_halftime_defeat(
             "halftime_outcomes": {"home_win": ht_home_wins, "draw": ht_draws, "away_win": ht_away_wins},
             "avoid_defeat_count": avoid_defeat_count,
             "avoid_defeat_probability": round(avoid_defeat_prob, 4),
-            "weighted_probability": weighted_prob
+            "weighted_probability": weighted_prob,
+            "blended_probability": blended_ht_prob,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
@@ -1070,6 +1122,11 @@ async def get_avoid_2nd_half_defeat(
         older_seasons=older_with_ht,
         condition_fn=avoids_2h_defeat
     )
+    recent_2h_prob = (
+        sum(1 for m in recent_with_ht if avoids_2h_defeat(m)) / len(recent_with_ht)
+        if recent_with_ht else weighted_prob
+    )
+    blended_2h_prob = round(weighted_prob * 0.40 + recent_2h_prob * 0.60, 4)
 
     return {
         "tool": "get_avoid_2nd_half_defeat",
@@ -1079,7 +1136,8 @@ async def get_avoid_2nd_half_defeat(
             "second_half_outcomes": {"home_win": second_half_home_wins, "draw": second_half_draws, "away_win": second_half_away_wins},
             "avoid_defeat_count": avoid_defeat_count,
             "avoid_defeat_probability": round(avoid_defeat_prob, 4),
-            "weighted_probability": weighted_prob
+            "weighted_probability": weighted_prob,
+            "blended_probability": blended_2h_prob,
         },
         "metadata": {
             "seasons_analyzed": matches_data["seasons_analyzed"],
