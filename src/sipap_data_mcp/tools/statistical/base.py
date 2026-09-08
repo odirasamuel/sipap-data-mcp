@@ -554,7 +554,10 @@ class BaseStatisticalTool:
         params: dict[str, Any] = {
             "team": team_id,
             "status": "FT",
-            "from_date": HISTORICAL_DATA_START,
+            # Use 'last' instead of from_date: /fixtures requires both 'season' and 'to'
+            # when 'from' is given. 'last=50' gives recent completed matches without
+            # those constraints and is sufficient for form analysis.
+            "last": 50,
         }
 
         if league_id:

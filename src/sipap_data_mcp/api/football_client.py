@@ -287,6 +287,7 @@ class APIFootballClient:
             last: Number of recent matches (default: 20 when no from_date given)
             from_date: Start date for historical range (YYYY-MM-DD). When provided,
                 fetches all H2H matches from this date onwards instead of using last.
+                API-Football requires both from AND to — today's date is used as to.
 
         Returns:
             API response with H2H fixtures
@@ -300,9 +301,12 @@ class APIFootballClient:
             h2h = await client.get_h2h(team1_id=50, team2_id=42, from_date="2010-08-01")
             ```
         """
+        from datetime import date as _date
         params: dict[str, Any] = {"h2h": f"{team1_id}-{team2_id}"}
         if from_date:
             params["from"] = from_date
+            # API-Football requires 'to' whenever 'from' is provided
+            params["to"] = _date.today().isoformat()
         else:
             params["last"] = last if last is not None else 20
         return await self._request(
